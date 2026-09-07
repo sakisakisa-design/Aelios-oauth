@@ -56,6 +56,13 @@ function getMaxOutput(env: Env): number {
   return Number.isFinite(value) ? clamp(Math.floor(value), 0, 20) : 2;
 }
 
+function resolveMaxOutput(env: Env, override?: number): number {
+  if (typeof override === "number" && Number.isFinite(override)) {
+    return clamp(Math.floor(override), 0, 100);
+  }
+  return getMaxOutput(env);
+}
+
 function getMaxContentChars(env: Env): number {
   const value = Number(env.MEMORY_FILTER_MAX_CONTENT_CHARS || 240);
   return Number.isFinite(value) ? clamp(Math.floor(value), 80, 3000) : 240;
@@ -211,7 +218,7 @@ async function rerankMemories(
 
 export async function filterAndCompressMemories(
   env: Env,
-  input: { query: string; memories: MemoryApiRecord[] }
+  input: { query: string; memories: MemoryApiRecord[]; maxOutput?: number }
 ): Promise<MemoryApiRecord[]> {
   const result = await filterAndCompressMemoriesWithMeta(env, input);
   return result.data;
@@ -231,7 +238,7 @@ function buildFailOpenResult(
 
 export async function filterAndCompressMemoriesWithMeta(
   env: Env,
-  input: { query: string; memories: MemoryApiRecord[] }
+  input: { query: string; memories: MemoryApiRecord[]; maxOutput?: number }
 ): Promise<{ data: MemoryApiRecord[]; meta: MemoryFilterMeta }> {
   const query = input.query.trim();
   const model = getRerankerModel(env);
@@ -254,7 +261,7 @@ export async function filterAndCompressMemoriesWithMeta(
     };
   }
 
-  const maxOutput = getMaxOutput(env);
+  const maxOutput = resolveMaxOutput(env, input.maxOutput);
   if (maxOutput === 0) {
     return {
       data: [],

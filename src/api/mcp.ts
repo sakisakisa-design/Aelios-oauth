@@ -15,19 +15,17 @@ import {
   upsertGlossary,
   upsertMemoryByFactKey
 } from "../db/v2";
-import { filterAndCompressMemories } from "../memory/filter";
 import { exportMemories } from "../memory/export";
 import { buildBootPackage, isV2Enabled, runRecall } from "../memory/v2/recall";
 import { readDreamTimeZoneFromEnv } from "../memory/dailyDigest";
 import { withImpressionDisclaimer } from "../memory/impression";
 import { getIsoWeekLabelForDateLabel } from "../memory/weeklyRollup";
-import { toMemoryApiRecord } from "../memory/search";
+import { searchMemories, toMemoryApiRecord } from "../memory/search";
 import {
   createVectorMemory,
   deleteVectorMemory,
   getVectorMemory,
-  listVectorMemories,
-  searchVectorMemories
+  listVectorMemories
 } from "../memory/vectorStore";
 
 import type { Env, KeyProfile, Scope } from "../types";
@@ -107,7 +105,7 @@ function getTools(): Array<Record<string, unknown>> {
   return [
     {
       name: "memory_search",
-      description: "Search the user's long-term memory library.",
+      description: "Search the user's long-term memory library. Returns complete records with ids for follow-up get/update/delete. This is explicit recall, not the short auto-injection patch.",
       inputSchema: {
         type: "object",
         properties: {
@@ -212,10 +210,9 @@ function getTools(): Array<Record<string, unknown>> {
     {
       name: "memory_recall",
       description:
-        "Per-turn dynamic recall: glossary literal hits + memories(active) vector + world_fact " +
-        "+ longtail fallback. Gate 3 inject-decay on last_injected_at. Gate 2 dedups hits against " +
-        "the core layer (precious) so the model isn't re-fed what it already knows this turn. " +
-        "Precious is NOT queried here (gate 1: it lives in boot). Call on UserPromptSubmit.",
+        "Explicit recall with complete hit records (id, score, source). Glossary + active memories " +
+        "+ world_fact + longtail. Does not apply the 2-item auto-injection budget. Precious is not " +
+        "queried here (it lives in boot). Prefer this or memory_search when the model needs to cite or edit.",
       inputSchema: {
         type: "object",
         properties: {
@@ -352,14 +349,13 @@ async function callTool(
     if (!hasScope(profile, "memory:read")) return toolError("Missing memory:read scope");
     const query = readString(args.query);
     if (!query) return toolError("query is required");
-    const memories = await searchVectorMemories(env, {
+    const memories = await searchMemories(env, {
       namespace: resolveNamespace(profile, args.namespace),
       query,
       topK: readNumber(args.top_k, Number(env.MEMORY_TOP_K || 50)),
       types: readStringArray(args.types)
     });
-    const data = await filterAndCompressMemories(env, { query, memories });
-    return textToolResult({ data });
+    return textToolResult({ data: memories });
   }
 
   if (params.name === "memory_create") {

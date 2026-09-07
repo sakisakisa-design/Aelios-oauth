@@ -237,3 +237,19 @@ export function quoteOverlaps(text: string, quote: string): boolean {
   if (!a || !b) return false;
   return a.includes(b) || b.includes(a);
 }
+
+/** Auto-recall prefers distilled / precious text. A quote that is already
+ * covered by those records is citation noise, not a replacement for them. */
+export function keepUncoveredQuotes<T extends { excerpt?: string; content: string }>(
+  quotes: T[],
+  coveringTexts: string[]
+): { kept: T[]; dropped: T[] } {
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const quote of quotes) {
+    const snippet = quote.excerpt || quote.content;
+    if (coveringTexts.some((text) => quoteOverlaps(text, snippet))) dropped.push(quote);
+    else kept.push(quote);
+  }
+  return { kept, dropped };
+}

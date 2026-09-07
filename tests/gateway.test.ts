@@ -98,6 +98,42 @@ test("migrations, native chat recall, namespace isolation, original text and Que
   assert.deepEqual(calls[1].query.messages, continuation.messages);
   assert.equal(queue[1].kind, "tool"); assert.equal(queue[1].userText, "");
 });
+
+function seedQuote(namespace: string, id: string, role: "user" | "assistant", content: string) {
+  sqlite.prepare("INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)")
+    .run("c-quote", namespace, "2026-09-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z");
+  sqlite.prepare(`INSERT INTO messages
+    (id, conversation_id, namespace, role, content, source, client_message_hash, stream, created_at, seq)
+    VALUES (?, ?, ?, ?, ?, 'test', ?, 0, ?, 0)`).run(
+    id, "c-quote", namespace, role, content, id, "2026-09-01T00:00:00.000Z"
+  );
+}
+
+test("ordinary chat does not inject raw message quotes", async () => {
+  precious("partner-a", "喜欢 Cloudflare");
+  seedQuote("partner-a", "msg-noise", "assistant", "我喜欢吃番茄炒蛋，还喜欢深夜加糖的豆浆。");
+  const { response } = await run("/v1/chat/completions", {
+    model: "partner",
+    messages: [{ role: "user", content: "我们喜欢什么？" }]
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-aelios-memory"), "injected");
+  const injected = JSON.stringify(calls[0].query.messages);
+  assert.match(injected, /喜欢 Cloudflare/);
+  assert.doesNotMatch(injected, /番茄炒蛋|豆浆/);
+});
+
+test("evidence questions may quote a message the memory store does not cover", async () => {
+  seedQuote("partner-a", "msg-pass", "user", "那天说的调试暗号是芝麻开门");
+  const { response } = await run("/v1/chat/completions", {
+    model: "partner",
+    messages: [{ role: "user", content: "调试暗号是什么？" }]
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-aelios-memory"), "injected");
+  assert.match(JSON.stringify(calls[0].query.messages), /芝麻开门/);
+  assert.doesNotMatch(JSON.stringify(calls[0].query.messages), /msg-pass|c-quote/);
+});
 test("transport metadata stays on the wire but not in memory storage", async () => {
   const envelope = '<message from="9fc3ec3b7f584cdfbfe84f72300e8f08" msg_id="7812076508172213971">迁企微、宁皎搬好了</message>';
   await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: envelope }] });
@@ -416,6 +452,21 @@ test("please-remember writes the original words into long-term memory", async ()
   });
   assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
   assert.match(JSON.stringify(calls[1].query.messages), /- 调试暗号是芝麻开门/);
+});
+
+test("evidence recall keeps a distilled memory instead of repeating its source quote", async () => {
+  await run("/v1/chat/completions", {
+    model: "partner",
+    messages: [{ role: "user", content: "请记住调试暗号是芝麻开门" }]
+  });
+  const ask = await run("/v1/chat/completions", {
+    model: "partner",
+    messages: [{ role: "user", content: "调试暗号是什么？" }]
+  });
+  assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
+  const injected = JSON.stringify(calls[1].query.messages);
+  assert.match(injected, /- 调试暗号是芝麻开门/);
+  assert.doesNotMatch(injected, /请记住调试暗号|用户: 「/);
 });
 
 test("CF chat rides compat with the gateway id in the URL; custom upstreams stay bearer-only", async () => {

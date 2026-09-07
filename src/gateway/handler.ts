@@ -3,7 +3,7 @@ import { markMemoriesInjected, listPrecious } from "../db/v2";
 import { recallInjectionBudget } from "../memory/filter";
 import { IMPRESSION_DISCLAIMER } from "../memory/impression";
 import { isEvidenceQuery, isPreciousRelevant, isTemporalQuery, selectRelevantPrecious, shapeRecallQuery } from "../memory/queryShape";
-import { formatQuote, quoteOverlaps, searchQuotes } from "../memory/quotes";
+import { formatQuote, keepUncoveredQuotes, searchQuotes } from "../memory/quotes";
 import { assembleRecallSurface, type SurfaceEntry } from "../memory/surface";
 import { buildCoreFingerprint, runRecall } from "../memory/v2/recall";
 import type { Env } from "../types";
@@ -62,14 +62,16 @@ export async function recallPatch(
         attach_week_blocks: temporal,
         waitUntil: promise => ctx.waitUntil(promise.catch(() => console.error("gateway recall accounting failed")))
       }),
-      searchQuotes(env.DB, {
-        namespace,
-        query,
-        tokens: shaped.lexicalTokens,
-        limit: evidence ? 4 : 2,
-        excludeIds: options.excludeMessageIds,
-        excludeVisibleIn: options.excludeVisibleIn
-      })
+      evidence
+        ? searchQuotes(env.DB, {
+            namespace,
+            query,
+            tokens: shaped.lexicalTokens,
+            limit: 4,
+            excludeIds: options.excludeMessageIds,
+            excludeVisibleIn: options.excludeVisibleIn
+          })
+        : Promise.resolve([])
     ]);
 
     const weekBlocks = temporal
@@ -78,29 +80,29 @@ export async function recallPatch(
       )
       : [];
 
-    const quoteEntries = quotes.map((hit) => ({
+    const regularHits = recall.hits;
+    const { kept: uncoveredQuotes, dropped: coveredQuotes } = keepUncoveredQuotes(
+      quotes,
+      [...relevantPrecious.map((row) => row.content), ...regularHits.map((hit) => hit.content)]
+    );
+    const quoteEntries = uncoveredQuotes.map((hit) => ({
       kind: "quote",
       content: formatQuote(hit, { compact: !evidence }),
       id: hit.id,
       excerpt: hit.excerpt,
       sourceIds: hit.source_ids
     }));
-    const droppedAsQuoteDup = recall.hits.filter((hit) =>
-      quotes.some((quote) => quoteOverlaps(hit.content, quote.excerpt || quote.content))
-    );
-    const regularHits = recall.hits.filter((hit) => !droppedAsQuoteDup.some((dup) => dup.id === hit.id));
     const droppedPrecious = precious
       .filter((row) => !relevantPrecious.some((kept) => kept.id === row.id))
       .slice(0, 12);
     const entries: SurfaceEntry[] = [
-      ...(evidence ? quoteEntries : []),
+      ...quoteEntries,
       ...relevantPrecious.map(p => ({ kind: "precious", content: p.content, id: p.id })),
       ...recall.glossary_hits.map(p => ({ kind: "glossary", content: `${p.term}: ${p.definition}` })),
       ...regularHits.map(p => ({ kind: memoryKind(p.source, p.type, p.authored_by), content: p.content, id: p.id })),
-      ...(!evidence ? quoteEntries : []),
       ...weekBlocks.map(p => ({ kind: "impression", content: `${IMPRESSION_DISCLAIMER} ${p.week}: ${p.summary}` }))
     ].map(entry => ({ ...entry, namespace }));
-    return { namespace, entries, relevantPrecious, quotes, regularHits, weekBlocks, droppedAsQuoteDup, droppedPrecious };
+    return { namespace, entries, relevantPrecious, quotes: uncoveredQuotes, regularHits, weekBlocks, coveredQuotes, droppedPrecious };
   }));
   const available = spaces.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   const failedNamespaces = namespaces.filter((_, i) => spaces[i].status === "rejected");
@@ -157,7 +159,7 @@ export async function recallPatch(
       quotes: available.reduce((n, s) => n + s.quotes.length, 0),
       regular_hits: available.reduce((n, s) => n + s.regularHits.length, 0),
       week_blocks: available.reduce((n, s) => n + s.weekBlocks.length, 0),
-      dropped_as_quote_dup: available.reduce((n, s) => n + s.droppedAsQuoteDup.length, 0)
+      dropped_quotes_covered: available.reduce((n, s) => n + s.coveredQuotes.length, 0)
     },
     items: assembled.entries.map((entry) => ({
       id: entry.id ?? null,
@@ -173,7 +175,7 @@ export async function recallPatch(
             : "recall_hit"
     })),
     excluded: [
-      ...available.flatMap(s => s.droppedAsQuoteDup.map(hit => ({ id: hit.id, namespace: s.namespace, reason: "quote_dup_on_excerpt" }))),
+      ...available.flatMap(s => s.coveredQuotes.map(hit => ({ id: hit.id, namespace: s.namespace, reason: "quote_covered_by_memory" }))),
       ...available.flatMap(s => s.droppedPrecious.map(row => ({ id: row.id, namespace: s.namespace, reason: "precious_not_relevant" })))
     ].slice(0, 24),
     injected: assembled.entries.length,

@@ -17,7 +17,7 @@ import {
   classifyRememberUtterance,
   parseRememberNow
 } from "../src/memory/rememberNow";
-import { excerptAroundMatch, formatQuote, quoteOverlaps, searchQuotes } from "../src/memory/quotes";
+import { excerptAroundMatch, formatQuote, keepUncoveredQuotes, quoteOverlaps, searchQuotes } from "../src/memory/quotes";
 import { isEvidenceQuery, isTemporalQuery, tokenizeForIndex } from "../src/memory/queryShape";
 import { searchMemoriesByText } from "../src/db/memories";
 import { backfillFts, rebuildFts, toFtsBody } from "../src/memory/fts";
@@ -112,6 +112,16 @@ test("automatic surfaces hide ids and message envelopes", () => {
   assert.deepEqual(surface.entries[0].sourceIds, ["msg_1", "msg_2"]);
   assert.match(surface.text, /- 迁企微、宁皎搬好了/);
   assert.doesNotMatch(surface.text, /9fc3ec3b|7812076508172213971|msg_1|\[quote\]/);
+});
+
+test("quotes already covered by a memory are dropped", () => {
+  const quotes = [
+    { id: "q1", content: "请记住调试暗号是芝麻开门", excerpt: "请记住调试暗号是芝麻开门" },
+    { id: "q2", content: "昨天吃了番茄炒蛋", excerpt: "昨天吃了番茄炒蛋" }
+  ];
+  const { kept, dropped } = keepUncoveredQuotes(quotes, ["调试暗号是芝麻开门"]);
+  assert.deepEqual(dropped.map((quote) => quote.id), ["q1"]);
+  assert.deepEqual(kept.map((quote) => quote.id), ["q2"]);
 });
 
 test("RRF keeps a lexical hit that the vector channel missed", () => {
@@ -232,6 +242,44 @@ test("reranker errors fail closed unless MEMORY_FILTER_FAIL_OPEN is true", async
   }, { query: "调试暗号", memories: memories as any });
   assert.equal(opened.data.length, 1);
   assert.equal(opened.meta.fallback_used, true);
+});
+
+test("active recall can keep more than the auto-injection two-item budget", async () => {
+  const memories = [0, 1, 2, 3, 4].map((index) => ({
+    id: `mem_${index}`,
+    namespace: "n",
+    type: "note",
+    content: `调试暗号相关事实 ${index} 还有足够长的正文方便核对`,
+    summary: null,
+    importance: 0.8,
+    confidence: 0.8,
+    status: "active",
+    pinned: false,
+    tags: [],
+    source: "dream",
+    source_message_ids: [],
+    vector_id: null,
+    last_recalled_at: null,
+    recall_count: 0,
+    created_at: "2026-09-01",
+    updated_at: "2026-09-01",
+    expires_at: null,
+    score: 0.9
+  }));
+  const env = {
+    ENABLE_MEMORY_FILTER: "true",
+    ENABLE_MEMORY_RERANKER: "false",
+    MEMORY_FILTER_MAX_OUTPUT: "2"
+  } as any;
+  const auto = await filterAndCompressMemoriesWithMeta(env, { query: "调试暗号", memories: memories as any });
+  assert.equal(auto.data.length, 2);
+  const active = await filterAndCompressMemoriesWithMeta(env, {
+    query: "调试暗号",
+    memories: memories as any,
+    maxOutput: 5
+  });
+  assert.equal(active.data.length, 5);
+  assert.ok(active.data.every((row) => row.id && row.content.includes("调试暗号相关事实")));
 });
 
 test("same-timestamp messages are not skipped after a mid-batch cut", async () => {
