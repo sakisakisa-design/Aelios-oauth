@@ -20,7 +20,7 @@
 
 ### 1. 部署
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wusaki0723/Aelios)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sakisakisa-design/Aelios-oauth)
 
 点按钮，登录 Cloudflare。表单里**只必填** `CHATBOX_API_KEY`：自己编一个密码，比如 `sk-my-aelios`。其余可以空着。
 
