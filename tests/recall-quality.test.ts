@@ -127,6 +127,10 @@ test("client recap and system-reminder are not treated as user speech", () => {
     ""
   );
   assert.equal(cleanMessageText("帮我写个 recap：今天做了什么"), "帮我写个 recap：今天做了什么");
+  assert.equal(cleanMessageText("已回她。"), "");
+  assert.equal(cleanMessageText("已回他"), "");
+  assert.equal(cleanMessageText("今晚吃什么\n已回她。"), "今晚吃什么");
+  assert.equal(cleanMessageText("我跟她说已回她了"), "我跟她说已回她了");
 });
 
 test("recent history skips recap turns so thin queries do not inherit them", () => {

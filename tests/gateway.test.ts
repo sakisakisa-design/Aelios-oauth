@@ -185,6 +185,47 @@ test("Anthropic tool_result is not human; client beta, signatures, tools and cac
   assert.equal(calls[0].headers["x-api-key"], undefined);
   assert.equal(queue[0].kind, "tool"); assert.equal(queue[0].assistantText, "Claude reply");
 });
+test("model tool calls are recorded; delivery receipts and tool results are not", async () => {
+  const mock = globalThis.fetch;
+  globalThis.fetch = async (url: any, init: any) => {
+    calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers)), query: JSON.parse(init?.body as string) });
+    return Response.json({
+      model: "claude-test",
+      content: [
+        { type: "tool_use", id: "w", name: "weixin_send", input: { text: "今晚吃什么" } },
+        { type: "tool_use", id: "b", name: "bash", input: { command: "date" } },
+        { type: "text", text: "已回她。" }
+      ],
+      stop_reason: "tool_use"
+    });
+  };
+  try {
+    const { response } = await run("/v1/messages", {
+      model: "partner", max_tokens: 16, messages: [{ role: "user", content: "晚饭呢" }]
+    });
+    assert.equal(response.status, 200);
+    assert.match(queue[0].assistantText, /weixin_send/);
+    assert.match(queue[0].assistantText, /今晚吃什么/);
+    assert.match(queue[0].assistantText, /bash/);
+    assert.match(queue[0].assistantText, /date/);
+    assert.doesNotMatch(queue[0].assistantText, /已回她/);
+    await persistExchange(env, { ...queue[0], completion: "complete" });
+    const assistant = sqlite.prepare("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
+    assert.match(assistant.content, /今晚吃什么/);
+    assert.doesNotMatch(assistant.content, /已回她/);
+  } finally { globalThis.fetch = mock; }
+
+  const out = new OutputCollector("messages");
+  const event = (data: any) => out.chunk(new TextEncoder().encode("data: " + JSON.stringify(data) + "\n\n"));
+  event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t", name: "weixin_send", input: {} } });
+  event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: "{\"text\":\"在的\"}" } });
+  event({ type: "content_block_stop", index: 0 });
+  event({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } });
+  event({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "已回她。" } });
+  event({ type: "message_stop" });
+  out.finish();
+  assert.equal(out.text, 'weixin_send {"text":"在的"}');
+});
 test("Responses string input, tool outputs and encrypted reasoning; hidden server history only rejected for main models", async () => {
   await run("/v1/responses", { model: "partner", input: "你好", store: true });
   assert.equal(calls[0].query.store, false); assert.equal(queue[0].userText, "你好");
