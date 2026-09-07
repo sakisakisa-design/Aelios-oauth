@@ -280,8 +280,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
           </button>
         </div>
         <div class="mt-1 text-[11px]" :class="tokenSaved() ? 'text-zinc-500' : 'text-coral'" x-text="tokenSaved() ? 'Token 已保存到本机' : 'Token 尚未保存'"></div>
-        <label class="mt-3 block text-xs text-zinc-400">Namespace</label>
-        <input x-model="namespace" @change="reloadAll()" class="mt-2 h-11 w-full rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm text-zinc-100 outline-none transition duration-150 ease-in-out focus:border-coral" placeholder="default">
+        <p class="mt-3 text-xs text-zinc-400">当前空间：<span x-text="namespace"></span></p>
       </div>
     </aside>
 
@@ -300,6 +299,31 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
       </header>
 
       <div x-show="toast" x-transition.opacity.duration.150ms class="fixed left-4 right-4 top-4 z-50 rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-100 shadow-sm md:left-auto md:right-6 md:w-96" x-text="toast"></div>
+
+      <section class="mb-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4" aria-label="选择助手的记忆">
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="text-xs text-zinc-400">查看谁的记忆
+            <select x-model="selectedIdentity" @change="selectIdentity($event.target.value)" class="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm text-zinc-100">
+              <option value="">自选空间（高级）</option>
+              <template x-for="idn in memoryIdentities" :key="idn.slug"><option :value="idn.slug" x-text="idn.slug"></option></template>
+            </select>
+          </label>
+          <label class="text-xs text-zinc-400" x-show="selectedIdentity">查看哪个空间
+            <select x-model="namespace" @change="switchSpace($event.target.value)" class="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm text-zinc-100">
+              <template x-for="space in identitySpaces()" :key="space.name"><option :value="space.name" x-text="space.label"></option></template>
+            </select>
+          </label>
+        </div>
+        <p class="mt-2 text-xs leading-6 text-zinc-400" x-text="spaceDescription()"></p>
+        <p class="text-xs leading-6 text-zinc-500">这里切换查看的记忆；客户端使用哪位助手由接入地址和钥匙决定。</p>
+        <p x-show="identityLoadError" x-text="identityLoadError" class="mt-2 text-xs text-coral"></p>
+        <details class="mt-2" :open="!selectedIdentity">
+          <summary class="cursor-pointer text-xs text-zinc-500">高级：手动指定空间</summary>
+          <label class="mt-2 block text-xs text-zinc-400">空间名
+            <input :value="namespace" @change="selectCustomSpace($event.target.value)" class="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm text-zinc-100" placeholder="default">
+          </label>
+        </details>
+      </section>
 
       <section x-show="page === 'today'" class="space-y-4">
         <div class="hidden items-center justify-between gap-4 md:flex">
@@ -605,7 +629,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
         <div x-show="moreView === 'maintenance'" class="space-y-3">
           <article class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
             <div class="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
-              <input x-model="namespace" @change="reloadAll()" class="h-11 rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm outline-none focus:border-coral" placeholder="namespace">
+              <div class="self-center text-sm text-zinc-400">当前空间：<span x-text="namespace"></span></div>
               <button type="button" @click="runHealth()" class="tap rounded-2xl border border-zinc-800 px-4 text-sm hover:border-coral">vector_health</button>
               <button type="button" @click="runReindex(true)" class="tap rounded-2xl border border-zinc-800 px-4 text-sm hover:border-coral">reindex dry</button>
               <button type="button" @click="runDream()" class="tap rounded-2xl bg-coral px-4 text-sm font-semibold text-zinc-950">dream force</button>
@@ -960,8 +984,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
             </button>
           </div>
           <div class="mt-1 text-[11px]" :class="tokenSaved() ? 'text-zinc-500' : 'text-coral'" x-text="tokenSaved() ? 'Token 已保存到本机' : 'Token 尚未保存'"></div>
-          <label class="mt-4 block text-xs text-zinc-400">Namespace</label>
-          <input x-model="namespace" @change="reloadAll()" class="mt-2 h-11 w-full rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm outline-none focus:border-coral" placeholder="default">
+          <p class="mt-4 text-xs text-zinc-400">查看空间请使用页面顶部的助手选择器。</p>
         </article>
         <article class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
           <div class="flex items-center justify-between gap-2">
@@ -1082,6 +1105,11 @@ function memoryAdmin() {
     gwGroups: [],
     gwSecrets: [],
     gwBusy: false,
+    memoryIdentities: [],
+    selectedIdentity: localStorage.getItem('aelios.admin.identity') || '',
+    identityPreferenceReady: localStorage.getItem('aelios.admin.identity') !== null,
+    identityLoadError: '',
+    spaceRevision: 0,
     page: 'today',
     moreView: 'precious',
     workerUrl: localStorage.getItem('aelios.admin.workerUrl') || location.origin,
@@ -1127,10 +1155,93 @@ function memoryAdmin() {
     dreamExpanded: {},
     harvestOpen: { new: true, dim: true, judged: true },
 
-    init() {
+    async init() {
       this.applyTheme();
       this.icons();
-      this.reloadAll();
+      await this.loadMemoryIdentities();
+      await this.reloadAll();
+    },
+    currentIdentity() {
+      return this.memoryIdentities.find(idn => idn.slug === this.selectedIdentity);
+    },
+    identitySpaces() {
+      const idn = this.currentIdentity();
+      if (!idn) return [];
+      const write = idn.namespace || idn.slug;
+      const reads = idn.readNamespaces === undefined ? [write] : idn.readNamespaces;
+      return [...new Set([write, ...reads])].map(name => ({ name: name,
+        label: name + (name === write ? ' · 写入空间' : ' · 召回空间') }));
+    },
+    spaceDescription() {
+      const idn = this.currentIdentity();
+      if (!idn) return '当前查看：' + this.namespace;
+      const write = idn.namespace || idn.slug;
+      const reads = idn.readNamespaces === undefined ? [write] : idn.readNamespaces;
+      const owners = this.memoryIdentities.filter(other =>
+        (other.namespace || other.slug) === this.namespace ||
+        (other.readNamespaces || []).includes(this.namespace)).map(other => other.slug);
+      return '写入：' + write + '；召回：' + (reads.length ? reads.join('、') : '已关闭') +
+        (owners.length > 1 ? '。当前空间也被这些助手使用：' + owners.filter(name => name !== idn.slug).join('、') : '');
+    },
+    async loadMemoryIdentities() {
+      if (!this.apiKey.trim()) return;
+      const revision = this.spaceRevision;
+      try {
+        const config = await this.request('/api/gateway/config');
+        if (revision !== this.spaceRevision) return;
+        this.memoryIdentities = config.identities || [];
+        this.identityLoadError = '';
+        const saved = localStorage.getItem('aelios.admin.identity');
+        let idn = this.currentIdentity();
+        // Keep an explicitly chosen custom space, including an old unconfigured library.
+        if (!idn && saved === null) {
+          idn = this.memoryIdentities.find(item => (item.namespace || item.slug) === this.namespace);
+          if (!idn && (this.namespace === 'default' || !this.namespace)) idn = this.memoryIdentities[0];
+        }
+        this.selectedIdentity = idn ? idn.slug : '';
+        this.identityPreferenceReady = true;
+        if (idn && !this.identitySpaces().some(space => space.name === this.namespace)) {
+          this.namespace = idn.namespace || idn.slug;
+          this.spaceRevision += 1;
+          this.clearSpaceData();
+        }
+        this.savePrefs();
+      } catch (error) {
+        if (revision !== this.spaceRevision) return;
+        this.identityLoadError = '助手列表读取失败，可在高级选项中填写空间名：' + error.message;
+      }
+    },
+    selectIdentity(slug) {
+      this.identityPreferenceReady = true;
+      this.selectedIdentity = slug;
+      const idn = this.currentIdentity();
+      return this.switchSpace(idn ? (idn.namespace || idn.slug) : this.namespace);
+    },
+    selectCustomSpace(name) {
+      this.identityPreferenceReady = true;
+      this.selectedIdentity = '';
+      return this.switchSpace(name);
+    },
+    async switchSpace(name) {
+      this.namespace = name.trim() || 'default';
+      this.spaceRevision += 1;
+      this.clearSpaceData();
+      await this.reloadAll();
+    },
+    clearSpaceData() {
+      this.boot = {}; this.stats = {};
+      this.todayMessages = []; this.candidates = []; this.memories = [];
+      this.precious = []; this.glossary = [];
+      this.diaryDailies = []; this.diaryWeeklies = []; this.diaryExpanded = {};
+      this.worldItems = []; this.worldSelection = {}; this.worldQuery = '';
+      this.memoryCreateOpen = false;
+      this.memoryDraft = { type: 'fact', content: '', fact_key: '', importance: 0.7, confidence: 0.85 };
+      this.glossaryDraft = { term: '', definition: '', aliasesText: '' };
+      this.dreamStatus = null; this.dreamRuns = []; this.dreamHarvest = null;
+      this.dreamExpanded = {}; this.dreamRunResult = null;
+      this.dreamDate = ''; this.dreamHarvestDate = '';
+      this.dreamLoading = false; this.dreamHarvestLoading = false;
+      this.debugOutput = '尚未运行维护操作';
     },
     icons() {
       this.$nextTick(function() {
@@ -1144,16 +1255,22 @@ function memoryAdmin() {
     savePrefs() {
       localStorage.setItem('aelios.admin.workerUrl', this.workerUrl || location.origin);
       localStorage.setItem('aelios.admin.namespace', this.namespace || 'default');
+      if (this.identityPreferenceReady) localStorage.setItem('aelios.admin.identity', this.selectedIdentity || '');
       localStorage.setItem('aelios.admin.colorMode', this.theme || 'light');
     },
     tokenSaved() {
       return (this.apiKey || '') === (this.savedApiKey || '');
     },
-    saveToken() {
+    async saveToken() {
+      this.spaceRevision += 1;
+      this.clearSpaceData();
+      this.memoryIdentities = [];
       this.savePrefs();
       localStorage.setItem('aelios.admin.apiKey', this.apiKey || '');
       this.savedApiKey = this.apiKey || '';
       this.notify(this.apiKey && this.apiKey.trim() ? 'Token 已保存' : 'Token 已清空');
+      await this.loadMemoryIdentities();
+      await this.switchSpace(this.namespace);
     },
     clearToken() {
       this.apiKey = '';
@@ -1204,6 +1321,7 @@ function memoryAdmin() {
       try {
         const config = await this.request('/api/gateway/config');
         this.gwAddress = config.upstream && config.upstream.address || '';
+        await this.loadMemoryIdentities();
         this.gwIdentities = (config.identities || []).map(function(idn) {
           return {
             slug: idn.slug || '',
@@ -1253,6 +1371,8 @@ function memoryAdmin() {
           config.settings = settings;
         }
         const result = await this.request('/api/gateway/config', { method: 'PUT', body: JSON.stringify(config) });
+        await this.loadMemoryIdentities();
+        await this.switchSpace(this.namespace);
         this.notify('保存好了,' + (result.identities || 0) + ' 个助手,环境设置最长 10 秒全网生效');
       } catch (error) { this.notify('网关保存失败:' + error.message); }
       this.gwBusy = false;
@@ -1260,6 +1380,8 @@ function memoryAdmin() {
     async reloadAll() {
       this.savePrefs();
       var tasks = [this.loadBoot(), this.loadCandidates(), this.loadMemories()];
+      if (this.page === 'diary') tasks.push(this.loadDiary());
+      if (this.page === 'more' && this.moreView === 'world') tasks.push(this.loadWorldFacts());
       if (this.page === 'dream') {
         tasks.push(this.loadDreamStatus());
         tasks.push(this.loadDreamHarvest());
@@ -1274,26 +1396,27 @@ function memoryAdmin() {
       return { start: start.toISOString(), end: end.toISOString() };
     },
     async loadBoot() {
+      const revision = this.spaceRevision;
       try {
         const range = this.todayRange();
         const data = await this.request(this.withNamespace('/v1/memory_boot?start=' + encodeURIComponent(range.start) + '&end=' + encodeURIComponent(range.end)));
+        if (revision !== this.spaceRevision) return;
         this.boot = data.data || {};
         this.stats = this.boot.stats || {};
 
         this.todayMessages = this.boot.today_messages || [];
         this.precious = this.boot.precious || [];
         this.glossary = this.boot.glossary || [];
-        if (this.moreView === 'world') {
-          this.worldItems = [];
-          this.pruneWorldSelection();
-        }
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
     },
     async loadCandidates() {
+      const revision = this.spaceRevision;
       try {
         const data = await this.request(this.withNamespace('/v1/candidates?status=pending&limit=100'));
+        if (revision !== this.spaceRevision) return;
         this.candidates = (data.data || []).map(function(item) {
           item.editing = false;
           item.mergeOpen = false;
@@ -1302,14 +1425,17 @@ function memoryAdmin() {
           return item;
         });
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
     },
     async loadMemories() {
+      const revision = this.spaceRevision;
       try {
         const typeParam = this.memoryType && this.memoryType !== 'all' ? '&type=' + encodeURIComponent(this.memoryType) : '';
         const path = '/v1/memory?status=active&limit=100' + typeParam;
         const data = await this.request(this.withNamespace(path));
+        if (revision !== this.spaceRevision) return;
         this.memories = (data.data || []).map(function(item) {
           item.editing = false;
           item.mergeOpen = false;
@@ -1318,6 +1444,7 @@ function memoryAdmin() {
           return item;
         });
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
     },
@@ -1329,11 +1456,14 @@ function memoryAdmin() {
       }
     },
     async loadWorldFacts() {
+      const revision = this.spaceRevision;
       try {
         const data = await this.request(this.withNamespace('/v1/memory?status=active&limit=80&type=world_fact'));
+        if (revision !== this.spaceRevision) return;
         this.worldItems = data.data || [];
         this.pruneWorldSelection();
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.worldItems = [];
         this.pruneWorldSelection();
         this.notify(error.message);
@@ -1632,6 +1762,7 @@ function memoryAdmin() {
       }
     },
     async searchWorld() {
+      const revision = this.spaceRevision;
       if (!this.worldQuery.trim()) {
         await this.loadWorldFacts();
         return;
@@ -1641,9 +1772,11 @@ function memoryAdmin() {
           method: 'POST',
           body: JSON.stringify({ namespace: this.namespace, query: this.worldQuery, top_k: 30, filter: false })
         });
+        if (revision !== this.spaceRevision) return;
         this.worldItems = data.data || [];
         this.pruneWorldSelection();
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
       this.icons();
@@ -1697,12 +1830,15 @@ function memoryAdmin() {
       this.icons();
     },
     async loadDiary() {
+      const revision = this.spaceRevision;
       try {
         const data = await this.request(this.withNamespace('/admin/diary?limit=30'));
+        if (revision !== this.spaceRevision) return;
         const payload = data.data || {};
         this.diaryDailies = payload.dailies || [];
         this.diaryWeeklies = payload.weeklies || [];
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
       this.icons();
@@ -1725,27 +1861,33 @@ function memoryAdmin() {
       return (this.dreamStatus && this.dreamStatus.anchor_date_label) || this.yesterdayLabel();
     },
     async loadDreamStatus() {
+      const revision = this.spaceRevision;
       this.dreamLoading = true;
       try {
         const data = await this.request(this.withNamespace('/v1/dream/status'));
+        if (revision !== this.spaceRevision) return;
         const payload = data.data || {};
         this.dreamStatus = payload;
         this.dreamRuns = payload.dream_runs || [];
         if (!this.dreamDate) this.dreamDate = this.dreamAnchorDate();
         if (!this.dreamHarvestDate) this.dreamHarvestDate = this.dreamAnchorDate();
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.notify(error.message);
       }
       this.dreamLoading = false;
       this.icons();
     },
     async loadDreamHarvest() {
+      const revision = this.spaceRevision;
       if (!this.dreamHarvestDate) this.dreamHarvestDate = this.dreamAnchorDate();
       this.dreamHarvestLoading = true;
       try {
         const data = await this.request(this.withNamespace('/admin/dream/harvest?date=' + encodeURIComponent(this.dreamHarvestDate)));
+        if (revision !== this.spaceRevision) return;
         this.dreamHarvest = data.data || null;
       } catch (error) {
+        if (revision !== this.spaceRevision) return;
         this.dreamHarvest = null;
         this.notify(error.message);
       }
