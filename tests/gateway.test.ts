@@ -6,7 +6,7 @@ import { timingSafeEqual } from "node:crypto";
 import worker from "../src/index";
 import { identityNamespace, identityReadNamespaces, invalidateSettingsCache, validateConfig } from "../src/gateway/config";
 import { appendMemory, classifyTurn, canonical } from "../src/gateway/protocol";
-import { catalogUrl, resolveUpstream, routeFor } from "../src/gateway/upstream";
+import { catalogUrl, resolveUpstream, routeFor, toolCacheRejections } from "../src/gateway/upstream";
 import { OutputCollector, observeResponse, persistExchange, prepareExchange, dispatchExchange } from "../src/gateway/record";
 
 // Test actual production modules and SQL, replacing only the external HTTP call.
@@ -309,21 +309,34 @@ test("automatic caching lowers to the last cacheable block without rewriting sys
   await run("/v1/messages", noSystem);
   assert.deepEqual(calls[2].query.messages[0].content[0].cache_control, cc);
 });
-test("autoCache identity gets gateway-side ephemeral breakpoints; client markers win", async () => {
-  setConfig(config([{ ...identity(), autoCache: true }]));
-  const body = { model: "partner", max_tokens: 16, system: [{ type: "text", text: "persona" }],
-    messages: [{ role: "user", content: "Hi" }] };
-  const { response } = await run("/v1/messages", body);
-  assert.equal(response.status, 200);
-  assert.deepEqual(calls[0].query.system[0].cache_control, { type: "ephemeral" });
-  assert.deepEqual(calls[0].query.messages[0].content.at(-1).cache_control, { type: "ephemeral" });
-  const cc = { type: "ephemeral", ttl: "1h" };
-  await run("/v1/messages", { ...body, messages: [{ role: "user", content: [{ type: "text", text: "Hi", cache_control: cc }] }] });
-  assert.equal(calls[1].query.system[0].cache_control, undefined);
-  assert.deepEqual(calls[1].query.messages[0].content[0].cache_control, cc);
-  await run("/v1/messages", { ...body, model: "other" });
-  assert.equal(calls[2].query.system[0].cache_control, undefined);
-  assert.equal(calls[2].query.messages[0].content, "Hi");
+test("upstream rejecting tool cache_control is learned: retry once stripped, then pre-strip", async () => {
+  toolCacheRejections.clear();
+  const vertexError = JSON.stringify({ errorCode: "INVALID_ARGUMENT",
+    parameters: { unsafeParams: "{unrecognizedProperty=cache_control}" }, message: "Request contained an unrecognized field" });
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  let fail = true;
+  globalThis.fetch = async (url: any, init: any) => {
+    seen.push(JSON.parse(init?.body as string));
+    if (fail) { fail = false; return new Response(vertexError, { status: 400 }); }
+    return baseFetch(url, init);
+  };
+  try {
+    const body = { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: "Hi" }] };
+    const { response } = await run("/v1/messages", body);
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[0].tools[0].cache_control, { type: "ephemeral" });
+    assert.equal(seen[1].tools[0].cache_control, undefined);
+    await run("/v1/messages", body);
+    assert.equal(seen.length, 3);
+    assert.equal(seen[2].tools[0].cache_control, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    toolCacheRejections.clear();
+  }
 });
 test("Queue failure falls back to D1; successful duplicate cannot overwrite complete record", async () => {
   await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: "Hi" }] });

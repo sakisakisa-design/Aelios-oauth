@@ -23,8 +23,6 @@ export interface Identity {
   models: string[];
   anthropicThinking?: "passthrough" | "drop_block";
   maxMemoryChars?: number;
-  /** 客户端不带 cache_control 时,由网关在 system 末尾和末轮补上 ephemeral 断点。 */
-  autoCache?: boolean;
 }
 export interface GatewayConfig {
   version: 3;
@@ -76,7 +74,6 @@ export function validateConfig(value: unknown): GatewayConfig {
       identity.models.every((m: unknown) => text(m) && (m as string).length <= 200),
       `${where}: models must be an array of at most 64 model names`);
     check(identity.anthropicThinking === undefined || ["passthrough", "drop_block"].includes(identity.anthropicThinking), `${where}: invalid anthropicThinking`);
-    check(identity.autoCache === undefined || typeof identity.autoCache === "boolean", `${where}: autoCache must be a boolean`);
     check(identity.maxMemoryChars === undefined || Number.isInteger(identity.maxMemoryChars) && identity.maxMemoryChars >= 256 && identity.maxMemoryChars <= 24000, `${where}: maxMemoryChars must be 256–24000`);
   }
   return value as unknown as GatewayConfig;

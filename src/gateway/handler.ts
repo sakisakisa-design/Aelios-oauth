@@ -10,10 +10,10 @@ import type { Env } from "../types";
 import { newId } from "../utils/ids";
 import { nowIso } from "../utils/time";
 import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type Identity, type Protocol } from "./config";
-import { appendMemory, autoCacheBreakpoints, classifyTurn, hasServerState, inputItems, recentHumanTexts, validateBody, visibleText, type Body } from "./protocol";
+import { appendMemory, classifyTurn, hasServerState, inputItems, recentHumanTexts, validateBody, visibleText, type Body } from "./protocol";
 import { RequestContractError } from "./request";
 import { dispatchExchange, persistHumanUtterance, observeResponse, prepareExchange } from "./record";
-import { callGatewayUpstream, prepareGatewayRequest, UpstreamRouteError } from "./upstream";
+import { callGatewayUpstream, prepareGatewayRequest, UpstreamRouteError, type PreparedRequest } from "./upstream";
 
 export function gatewayError(protocol: Protocol, message: string, status: number): Response {
   const type = status === 401 ? "authentication_error" : status >= 500 ? "api_error" : "invalid_request_error";
@@ -210,15 +210,13 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
     return gatewayError(protocol, "Request-only memory requires stateless Responses input: send full history without previous_response_id, conversation or item_reference; or use a model outside the main list.", 400);
   }
   const turn = classifyTurn(body, protocol, request.headers.get("x-aelios-purpose") === "auxiliary");
-  let prepared: ReturnType<typeof prepareGatewayRequest>;
+  let prepared: PreparedRequest;
   try { prepared = prepareGatewayRequest(env, config, identity, protocol, request, body); }
   catch (error) {
     return gatewayError(protocol, error instanceof Error ? error.message : "Invalid upstream request",
       error instanceof RequestContractError || error instanceof UpstreamRouteError ? 400 : 502);
   }
   if (prepared.removed.length) console.log("gateway request normalized", { protocol, removed: prepared.removed });
-  // Clients without cache_control (rikkahub) get gateway-side ephemeral breakpoints.
-  if (main && identity.autoCache && protocol === "messages") autoCacheBreakpoints(prepared.body);
   let patch = "";
   let memoryStatus = !main ? "off" : turn.kind !== "human" ? "skipped" : "empty";
   let rememberStatus = "none";
