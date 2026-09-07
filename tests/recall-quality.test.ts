@@ -28,7 +28,7 @@ import {
   judgeKindFor,
   buildJudgePrompt
 } from "../src/memory/candidateJudge";
-import { recentHumanTexts } from "../src/gateway/protocol";
+import { classifyTurn, recentHumanTexts } from "../src/gateway/protocol";
 import type { MemoryCandidateRow } from "../src/db/v2/candidates";
 import { cleanMessageText } from "../src/utils/sanitize";
 
@@ -97,6 +97,60 @@ test("transport envelopes are removed without eating ordinary prose", () => {
   );
   assert.equal(cleanMessageText(`from=${hash} msg_id=${id}\n迁企微、宁皎搬好了`), "迁企微、宁皎搬好了");
   assert.equal(cleanMessageText("文档里可以写 <message>正文</message>"), "文档里可以写 <message>正文</message>");
+  assert.equal(
+    cleanMessageText(`<wecom-message from="${hash}" msg_id="${id}">今晚吃什么</wecom-message>`),
+    "今晚吃什么"
+  );
+  assert.equal(
+    cleanMessageText(`<wecom-message from="${hash}" msg_id="${id}">未闭合的企微`),
+    "未闭合的企微"
+  );
+  assert.equal(
+    cleanMessageText(`请看 <wecom-message from="${hash}" msg_id="${id}">迁企微</wecom-message> 然后呢`),
+    "请看 迁企微 然后呢"
+  );
+});
+
+test("client recap and system-reminder are not treated as user speech", () => {
+  assert.equal(cleanMessageText("<recap>\nUser stepped away; returning. Recap: <40 words.</recap>"), "");
+  assert.equal(cleanMessageText("<recap>\nUser stepped away; returning. Recap: <40 words."), "");
+  assert.equal(
+    cleanMessageText("<system-reminder>\nToday: 2026-09-07; current working directory: '/home/box/home'</system-reminder>"),
+    ""
+  );
+  assert.equal(
+    cleanMessageText("今晚吃什么\n<system-reminder>\nToday: 2026-09-07; current working directory: '/tmp'</system-reminder>"),
+    "今晚吃什么"
+  );
+  assert.equal(
+    cleanMessageText("User stepped away; returning. Recap: <40 words."),
+    ""
+  );
+  assert.equal(cleanMessageText("帮我写个 recap：今天做了什么"), "帮我写个 recap：今天做了什么");
+});
+
+test("recent history skips recap turns so thin queries do not inherit them", () => {
+  const texts = recentHumanTexts({
+    messages: [
+      { role: "user", content: "<recap>\nUser stepped away; returning. Recap: <40 words." },
+      { role: "assistant", content: "ok" },
+      { role: "user", content: "那个呢？" }
+    ]
+  }, "chat");
+  assert.deepEqual(texts, ["那个呢？"]);
+});
+
+test("classifyTurn treats machine-only user payloads as auxiliary", () => {
+  const recap = classifyTurn({
+    messages: [{ role: "user", content: "<recap>\nUser stepped away; returning. Recap: <40 words." }]
+  }, "chat");
+  assert.equal(recap.kind, "auxiliary");
+  assert.equal(recap.text, "");
+  const wecom = classifyTurn({
+    messages: [{ role: "user", content: '<wecom-message from="abc" msg_id="1">今晚吃什么</wecom-message>' }]
+  }, "chat");
+  assert.equal(wecom.kind, "human");
+  assert.equal(wecom.text, "今晚吃什么");
 });
 
 test("automatic surfaces hide ids and message envelopes", () => {

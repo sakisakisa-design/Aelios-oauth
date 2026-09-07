@@ -143,6 +143,34 @@ test("transport metadata stays on the wire but not in memory storage", async () 
   const stored = sqlite.prepare("SELECT content FROM messages WHERE role = 'user'").get() as { content: string };
   assert.equal(stored.content, "迁企微、宁皎搬好了");
 });
+test("wecom envelopes recall on inner speech; recap turns skip recall and storage", async () => {
+  precious("partner-a", "喜欢 Cloudflare");
+  seedQuote("partner-a", "msg-noise", "assistant", "我喜欢吃番茄炒蛋，还喜欢深夜加糖的豆浆。");
+  const wecom = '<wecom-message from="086923c2648ccdfdb83072c64717dc35" msg_id="7812076508172213971">我们喜欢什么？</wecom-message>';
+  const wecomRes = await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: wecom }] });
+  assert.equal(wecomRes.response.status, 200);
+  assert.equal(wecomRes.response.headers.get("x-aelios-memory"), "injected");
+  assert.equal(calls[0].query.messages[0].content.split("\n\n")[0], wecom);
+  const wecomPatch = calls[0].query.messages[0].content.slice(wecom.length);
+  assert.match(wecomPatch, /喜欢 Cloudflare/);
+  assert.doesNotMatch(wecomPatch, /086923c2648ccdfdb83072c64717dc35|番茄炒蛋/);
+  assert.equal(queue[0].kind, "human");
+  assert.equal(queue[0].userText, "我们喜欢什么？");
+  const afterWecom = sqlite.prepare("SELECT count(*) AS n FROM messages").get()!.n as number;
+
+  const recap = "<recap>\nUser stepped away; returning. Recap: <40 words.";
+  const recapRes = await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: recap }] });
+  assert.equal(recapRes.response.status, 200);
+  assert.equal(recapRes.response.headers.get("x-aelios-memory"), "skipped");
+  assert.equal(calls[1].query.messages[0].content, recap);
+  assert.doesNotMatch(JSON.stringify(calls[1].query.messages), /喜欢 Cloudflare|番茄炒蛋/);
+  assert.equal(queue[1].kind, "auxiliary");
+  assert.equal(queue[1].userText, "");
+  await persistExchange(env, queue[1]);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM messages").get()!.n, afterWecom);
+  const stored = sqlite.prepare("SELECT content FROM messages").all() as { content: string }[];
+  assert.ok(stored.every((row) => !/User stepped away|<recap>/i.test(row.content)));
+});
 test("Anthropic tool_result is not human; client beta, signatures, tools and cache survive", async () => {
   const body = { model: "partner", max_tokens: 1000, tools: [{ name: "t", input_schema: { type: "object" } }],
     messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "", signature: "opaque" }, { type: "tool_use", id: "t", name: "t", input: {} }] },

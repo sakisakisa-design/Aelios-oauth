@@ -1,6 +1,5 @@
 import type { OpenAIChatMessage } from "../types";
 
-const ENVELOPE_TAG_RE = /<([a-z][\w:-]*)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
 const ENVELOPE_MARKER_RE = /\b(?:from|sender|sender_id|msg_id|message_id)\s*=/i;
 
 function decodeBasicEntities(text: string): string {
@@ -9,35 +8,112 @@ function decodeBasicEntities(text: string): string {
   })[entity] || entity);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasCloseTag(text: string, tag: string): boolean {
+  return new RegExp(`</${escapeRegExp(tag)}\\s*>`, "i").test(text);
+}
+
 /**
- * Some clients wrap the human sentence in a transport envelope such as
- * `<message from="hash" msg_id="123">hello</message>`. The attributes are
- * useful to the client, but poison lexical search and should never become the
- * remembered sentence. Only unwrap a complete, recognisable envelope; normal
- * prose and code samples stay untouched.
+ * Transport wrappers (企微 / IM bridges). Keep the inner sentence; never
+ * remember hashes or msg_id attributes. A bare `<message>` without sender
+ * markers is left alone — that is ordinary prose or a code sample.
+ */
+function isTransportEnvelope(tag: string, attrs: string): boolean {
+  const name = tag.toLowerCase();
+  if (name.includes("wecom") || name.includes("wechat") || name.includes("weixin")) return true;
+  return name.includes("message") && ENVELOPE_MARKER_RE.test(attrs);
+}
+
+/**
+ * Client / harness instruction blocks. Inner text is not a user utterance
+ * (recap templates, cwd reminders, hook payloads). `time_reminder` is a
+ * summary delimiter and is only stripped when the tag is closed; the unclosed
+ * `now|用户话题` form stays for sanitizeSummaryContent.
+ */
+function isInstructionBlock(tag: string): boolean {
+  const name = tag.toLowerCase();
+  if (name === "recap") return true;
+  if (name.endsWith("-reminder") || name.endsWith("_reminder")) return true;
+  return /^(system|local|command|agent|task|hook)[-_]/.test(name);
+}
+
+function isUnclosedInstructionWrapper(tag: string): boolean {
+  const name = tag.toLowerCase();
+  if (name === "time_reminder" || name === "time-reminder") return false;
+  return isInstructionBlock(name);
+}
+
+function unwrapTransportEnvelopes(text: string): string {
+  const closed = /<([a-zA-Z][\w:-]*)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  let out = "";
+  let cursor = 0;
+  for (const match of text.matchAll(closed)) {
+    const index = match.index ?? 0;
+    if (!isTransportEnvelope(match[1], match[2])) continue;
+    out += text.slice(cursor, index);
+    out += decodeBasicEntities(match[3]).trim();
+    cursor = index + match[0].length;
+  }
+  out += text.slice(cursor);
+
+  const open = /<([a-zA-Z][\w:-]*)\b([^>]*?)>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(out))) {
+    if (match[0].endsWith("/>")) continue;
+    if (!isTransportEnvelope(match[1], match[2])) continue;
+    const after = out.slice(match.index + match[0].length);
+    if (hasCloseTag(after, match[1])) continue;
+    out = (out.slice(0, match.index) + decodeBasicEntities(after)).trim();
+    break;
+  }
+  return out;
+}
+
+function stripInstructionBlocks(text: string): string {
+  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*\/>/gi, (full, tag) =>
+    isInstructionBlock(tag) ? "" : full
+  );
+  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (full, tag) =>
+    isInstructionBlock(tag) ? "" : full
+  );
+
+  const open = /<([a-zA-Z][\w:-]*)\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(text))) {
+    if (match[0].endsWith("/>")) continue;
+    if (!isUnclosedInstructionWrapper(match[1])) continue;
+    const after = text.slice(match.index + match[0].length);
+    if (hasCloseTag(after, match[1])) continue;
+    text = text.slice(0, match.index);
+    break;
+  }
+  return text;
+}
+
+/** Whole-utterance (or trailing) templates that clients inject without tags. */
+function dropMachineProse(text: string): string {
+  return text
+    .replace(/(?:^|\n)user stepped away;?\s*returning\.\s*recap:[\s\S]*$/i, "")
+    .replace(/(?:^|\n)recap:\s*<[\s\S]*$/i, "")
+    .replace(/(?:^|\n)today:\s*\d{4}-\d{2}-\d{2}\b[\s\S]*current working directory[\s\S]*$/i, "")
+    .trim();
+}
+
+/**
+ * Keep the human sentence. Unwrap IM transport envelopes; drop client
+ * recap / system-reminder / hook blocks. Ordinary prose that happens to
+ * mention `<message>` or the word recap is left untouched.
  */
 export function cleanMessageText(input: string): string {
   let text = input.replace(/\r\n/g, "\n").trim();
   if (!text) return "";
 
-  const bodies: string[] = [];
-  let cursor = 0;
-  ENVELOPE_TAG_RE.lastIndex = 0;
-  for (const match of text.matchAll(ENVELOPE_TAG_RE)) {
-    const index = match.index ?? 0;
-    if (text.slice(cursor, index).trim()) { bodies.length = 0; break; }
-    const tag = match[1].toLowerCase();
-    const attrs = match[2];
-    if (!(tag.includes("message") && ENVELOPE_MARKER_RE.test(attrs))) { bodies.length = 0; break; }
-    bodies.push(decodeBasicEntities(match[3]).trim());
-    cursor = index + match[0].length;
-  }
-  if (bodies.length && !text.slice(cursor).trim()) {
-    text = bodies.filter(Boolean).join("\n");
-  }
+  text = unwrapTransportEnvelopes(text);
+  text = stripInstructionBlocks(text);
 
-  // A few bridges use a one-line header instead of XML. Require both sender
-  // and message-id markers on that line to avoid eating ordinary prose.
   const newline = text.indexOf("\n");
   if (newline > 0) {
     const header = text.slice(0, newline);
@@ -46,6 +122,8 @@ export function cleanMessageText(input: string): string {
       text = text.slice(newline + 1).trim();
     }
   }
+
+  text = dropMachineProse(text);
   return text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
