@@ -7,6 +7,7 @@ import {
   cloakSystem,
   wantsOauthMessages
 } from "./oauth";
+import { CODEX_BACKEND, getCodexCredentials, wantsCodexOauth } from "./codexOauth";
 import { applyThinkingPolicy, sanitizeCacheControl, stripToolCacheControl, type Body } from "./protocol";
 import { normalizeRequest, validateRequest } from "./request";
 
@@ -94,7 +95,7 @@ export interface UpstreamRoute {
   /** Provider endpoints take the native name; compat keeps the author-prefixed one. */
   model: string;
   /** Provider endpoints carry the CF token as cf-aig-authorization (BYOK); bearer elsewhere. */
-  auth: "bearer" | "cf-aig" | "anthropic-oauth";
+  auth: "bearer" | "cf-aig" | "anthropic-oauth" | "chatgpt-oauth";
 }
 
 /**
@@ -142,6 +143,31 @@ export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity:
     validateRequest(out, protocol, headers);
     return { route, headers, body: out, removed: normalized.removed };
   }
+  if (wantsCodexOauth(env, protocol, body.model)) {
+    const route: UpstreamRoute = {
+      url: `${CODEX_BACKEND}/responses`,
+      model: body.model,
+      auth: "chatgpt-oauth"
+    };
+    const headers = new Headers({
+      "content-type": "application/json",
+      accept: body.stream ? "text/event-stream" : original.headers.get("accept") || "application/json",
+      originator: original.headers.get("originator") || "codex_cli_rs",
+      "openai-beta": original.headers.get("openai-beta") || "responses=experimental"
+    });
+    const ua = original.headers.get("user-agent");
+    if (ua) headers.set("user-agent", ua);
+    const version = original.headers.get("version");
+    if (version) headers.set("version", version);
+    const normalized = normalizeRequest(body, protocol);
+    const out = normalized.body;
+    out.model = route.model;
+    out.store = false;
+    validateRequest(out, protocol, headers);
+    sanitizeCacheControl(out, protocol);
+    validateRequest(out, protocol, headers);
+    return { route, headers, body: out, removed: normalized.removed };
+  }
   const token = env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Missing Worker secret CLOUDFLARE_API_TOKEN");
   const route = routeFor(resolveUpstream(env, config), protocol, body.model);
@@ -171,11 +197,26 @@ export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity:
 export const toolCacheRejections = new Set<string>();
 
 export async function callGatewayUpstream(protocol: Protocol, original: Request,
-  prepared: PreparedRequest, body: Body): Promise<Response> {
+  prepared: PreparedRequest, body: Body, env: Env): Promise<Response> {
   const { route, headers } = prepared;
   // Check the actual wire payload, including the gateway's own modifications.
   validateRequest(body, protocol, headers);
   if (toolCacheRejections.has(route.url)) stripToolCacheControl(body);
+  if (route.auth === "chatgpt-oauth") {
+    const attach = async (forceRefresh = false) => {
+      const creds = await getCodexCredentials(env, forceRefresh);
+      headers.set("authorization", `Bearer ${creds.accessToken}`);
+      if (creds.accountId) headers.set("chatgpt-account-id", creds.accountId);
+    };
+    await attach();
+    const send = () => fetch(route.url, {
+      method: "POST", headers, body: JSON.stringify(body), signal: original.signal, redirect: "manual"
+    });
+    const first = await send();
+    if (first.status !== 401) return first;
+    await attach(true);
+    return send();
+  }
   const send = () => fetch(route.url, {
     method: "POST", headers, body: JSON.stringify(body), signal: original.signal, redirect: "manual"
   });

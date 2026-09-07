@@ -68,7 +68,7 @@ details{margin-top:8px}summary{cursor:pointer;color:#a6b4c3}
 <div class="row"><button id="load">读取</button><button id="save">保存</button></div><div id="status" role="status" aria-live="polite"></div></section>
 
 <section><h2>上游连接</h2>
-<label>上游地址<input id="cfAddress" placeholder="CF 账号 ID(32 位),或完整地址,如 new-api 的 https://…/v1"><div class="hint">最省心:填 32 位账号 ID,贴 Cloudflare 网关网址也能认。chat 走 compat,全 provider;messages / responses 走各 provider 的原生端点,模型名记得带 <code>provider/模型</code> 前缀。Worker Secret 里若有 <code>CLAUDE_OAUTH_TOKEN</code>，无前缀的 <code>/v1/messages</code>（Claude Code）直打 api.anthropic.com，不进 AI Gateway。令牌去 Worker Secrets 加 <code>CLOUDFLARE_API_TOKEN</code> / <code>CLAUDE_OAUTH_TOKEN</code>。</div></label></section>
+<label>上游地址<input id="cfAddress" placeholder="CF 账号 ID(32 位),或完整地址,如 new-api 的 https://…/v1"><div class="hint">最省心:填 32 位账号 ID。chat 走 compat;带 provider/ 前缀的 messages / responses 走 AI Gateway。Secret 里若有 <code>CLAUDE_OAUTH_TOKEN</code>，无前缀 <code>/v1/messages</code> 直打 Anthropic；若有 <code>CODEX_AUTH_JSON</code> / <code>CODEX_REFRESH_TOKEN</code>，无前缀 <code>/v1/responses</code> 直打 chatgpt.com Codex 后端。两路都不进 AI Gateway。</div></label></section>
 
 <section><h2>助手</h2><p class="hint">每位三格：名字、主模型、钥匙。主模型支持 <code>*</code> 通配，写不写 <code>anthropic/</code> 前缀都能认。</p>
 <div id="identities"></div><button id="addIdentity" class="ghost">+ 添加助手</button></section>
