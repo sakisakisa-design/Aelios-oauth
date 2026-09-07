@@ -38,6 +38,13 @@ export async function recallPatch(
   const namespace = identityNamespace(identity);
   const namespaces = identityReadNamespaces(identity);
   const recallId = options.recallId ?? newId("rcl");
+  query = cleanMessageText(query);
+  recent = recent.map((text) => cleanMessageText(text)).filter(Boolean);
+  if (!query) {
+    console.log("gateway recall decision", { recall_id: recallId, identity: identity.slug, injected: 0,
+      reason: "no_user_speech" });
+    return "";
+  }
   const shaped = shapeRecallQuery({ query, recent });
   const budget = recallInjectionBudget(env);
   const evidence = isEvidenceQuery(query);

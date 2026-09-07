@@ -39,10 +39,13 @@ export function classifyTurn(body: Body, protocol: Protocol, auxiliary = false):
   if (auxiliary || !last) return { kind: "auxiliary", text: "", index };
   if (last.role === "tool" || /_call_output$/.test(last.type || "")) return { kind: "tool", text: "", index };
   if (last.role !== "user" || last.type && !["message", "input_message"].includes(last.type)) return { kind: "auxiliary", text: "", index };
-  const text = cleanMessageText(visibleText(last.content));
+  const raw = visibleText(last.content);
+  const text = cleanMessageText(raw);
   const blocks = Array.isArray(last.content) ? last.content : [];
   const tool = blocks.some(p => object(p) && p.type === "tool_result");
   if (tool && !text.trim()) return { kind: "tool", text: "", index };
+  // Recap / system-reminder / empty envelopes: not a user utterance.
+  if (!text.trim() && raw.trim()) return { kind: "auxiliary", text: "", index };
   return { kind: "human", text, index };
 }
 export function appendMemory(body: Body, protocol: Protocol, patch: string): Body {
