@@ -309,22 +309,6 @@ test("automatic caching lowers to the last cacheable block without rewriting sys
   await run("/v1/messages", noSystem);
   assert.deepEqual(calls[2].query.messages[0].content[0].cache_control, cc);
 });
-test("autoCache identity gets gateway-side ephemeral breakpoints; client markers win", async () => {
-  setConfig(config([{ ...identity(), autoCache: true }]));
-  const body = { model: "partner", max_tokens: 16, system: [{ type: "text", text: "persona" }],
-    messages: [{ role: "user", content: "Hi" }] };
-  const { response } = await run("/v1/messages", body);
-  assert.equal(response.status, 200);
-  assert.deepEqual(calls[0].query.system[0].cache_control, { type: "ephemeral" });
-  assert.deepEqual(calls[0].query.messages[0].content.at(-1).cache_control, { type: "ephemeral" });
-  const cc = { type: "ephemeral", ttl: "1h" };
-  await run("/v1/messages", { ...body, messages: [{ role: "user", content: [{ type: "text", text: "Hi", cache_control: cc }] }] });
-  assert.equal(calls[1].query.system[0].cache_control, undefined);
-  assert.deepEqual(calls[1].query.messages[0].content[0].cache_control, cc);
-  await run("/v1/messages", { ...body, model: "other" });
-  assert.equal(calls[2].query.system[0].cache_control, undefined);
-  assert.equal(calls[2].query.messages[0].content, "Hi");
-});
 test("Queue failure falls back to D1; successful duplicate cannot overwrite complete record", async () => {
   await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: "Hi" }] });
   env.MEMORY_QUEUE.send = async () => { throw Error("queue unavailable"); };

@@ -157,9 +157,6 @@ Anthropic token counting。使用这些额外端点的客户端需要后续适�
 顶层 `cache_control` 是 Anthropic 已支持的自动缓存字段，但部分 Vertex/代理线路仍会拒绝。
 为兼容现有线路，网关把它转换成注入前最后一个可缓存块上的显式断点；已有断点保留，TTL 冲突或超过 4 个提前返回 400。
 没有顶层缓存设置就不主动添加断点。这个转换不等于保证所有上游支持同一套特性。
-身份级 `autoCache: true`(面板「高级」里)时,主模型请求若完全不带缓存断点,网关补两个 ephemeral 断点:
-system 前缀末尾和末轮尾部,让下一轮读到上一轮为止的全部前缀。补丁注入发生在断点之后,不进缓存前缀,
-不会每轮冲掉缓存。客户端自带任何断点(顶层或块级)时网关一律不加。
 响应头 `x-aelios-identity/memory/provider/model` 用于诊断；实际模型与 Provider 优先读取 `cf-aig-model/provider`。
 `x-aelios-normalized` 表示删除的非规范字段数量，Worker 日志列出字段路径，不记录被删除的值。
 

@@ -1001,7 +1001,6 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
                   <option value="passthrough">原样透传(思考开着时跳过注入)</option>
                   <option value="drop_block">临时记忆 + 上游丢弃失配思考(需 beta)</option>
                 </select>
-                <label class="mt-2 flex items-center gap-1.5 text-xs text-zinc-400"><input type="checkbox" x-model="idn.autoCache" class="h-4 w-4 accent-[#f4a07c]"><span>自动缓存断点(客户端不带时由网关补,如 rikkahub)</span></label>
                 <label class="mt-2 block text-xs text-zinc-400">单次记忆字数上限</label>
                 <input x-model="idn.maxMemoryChars" type="number" min="256" max="24000" class="mt-1 h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="留空默认 6000">
               </details>
@@ -1213,8 +1212,7 @@ function memoryAdmin() {
             readNamespacesText: idn.readNamespaces ? (idn.readNamespaces.length ? idn.readNamespaces.join(', ') : '[]') : '',
             keys: idn.keys && idn.keys.length ? idn.keys.slice() : ['CHATBOX_API_KEY'],
             anthropicThinking: idn.anthropicThinking || 'passthrough',
-            maxMemoryChars: idn.maxMemoryChars || '',
-            autoCache: idn.autoCache === true
+            maxMemoryChars: idn.maxMemoryChars || ''
           };
         });
         const envData = await this.request('/api/gateway/env');
@@ -1225,7 +1223,7 @@ function memoryAdmin() {
       this.gwBusy = false;
     },
     gwAdd() {
-      this.gwIdentities.push({ slug: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '', autoCache: false });
+      this.gwIdentities.push({ slug: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '' });
     },
     async gwSave() {
       if (this.gwBusy) return;
@@ -1241,7 +1239,6 @@ function memoryAdmin() {
           const reads = (idn.readNamespacesText || '').trim();
           if (reads) out.readNamespaces = reads === '[]' ? [] : reads.split(/[,，\n]/).map(function(s) { return s.trim(); }).filter(Boolean);
           if (idn.anthropicThinking && idn.anthropicThinking !== 'passthrough') out.anthropicThinking = idn.anthropicThinking;
-          if (idn.autoCache) out.autoCache = true;
           const budget = parseInt(idn.maxMemoryChars, 10);
           if (budget) out.maxMemoryChars = budget;
           return out;

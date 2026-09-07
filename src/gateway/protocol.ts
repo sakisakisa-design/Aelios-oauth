@@ -92,33 +92,6 @@ export function sanitizeCacheControl(body: Body, protocol: Protocol): void {
   const last = lastCacheableBlock(body, true);
   if (object(last) && !last.cache_control) last.cache_control = cc;
 }
-// Identity-level automatic caching for clients that send no breakpoints at all
-// (rikkahub): mark the end of the system prefix plus the final turn's tail, so the
-// next turn cache-reads everything up to the previous tail. Any client-supplied
-// marker (top-level or block) wins and nothing is added.
-export function autoCacheBreakpoints(body: Body): boolean {
-  if (body.cache_control !== undefined) return false;
-  const marked = (v: unknown): boolean => Array.isArray(v) && v.some(b => object(b) && b.cache_control !== undefined);
-  if (marked(body.system) || marked(body.tools)) return false;
-  for (const m of body.messages ?? []) if (marked(m?.content)) return false;
-  const cc = { type: "ephemeral" };
-  let added = false;
-  if (typeof body.system === "string" && body.system) {
-    body.system = [{ type: "text", text: body.system, cache_control: cc }];
-    added = true;
-  } else if (Array.isArray(body.system)) {
-    for (let i = body.system.length - 1; i >= 0; i--) {
-      const block = body.system[i];
-      if (object(block) && CACHEABLE.has(block.type)) { block.cache_control = cc; added = true; break; }
-    }
-  }
-  const tail = lastCacheableBlock(body, true);
-  if (tail && tail.cache_control === undefined && !(Array.isArray(body.system) && body.system.at(-1) === tail)) {
-    tail.cache_control = cc;
-    added = true;
-  }
-  return added;
-}
 // Encrypted reasoning stays allowed; only server-owned history breaks request-only memory.
 export function hasServerState(body: Body, protocol: Protocol): boolean {
   return protocol === "responses" && !!(body.previous_response_id || body.conversation ||
