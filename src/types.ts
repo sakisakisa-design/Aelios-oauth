@@ -108,8 +108,6 @@ export interface Env {
   MEMORY_FILTER_FAIL_OPEN?: string;
   RECALL_RERANK_MIN_SCORE?: string;
   RECALL_RERANK_TIMEOUT_MS?: string;
-  RECALL_SELECTOR_MODEL?: string;
-  RECALL_SELECTOR_TIMEOUT_MS?: string;
   MEMORY_EXTRACT_EVERY_N_MESSAGES?: string;
   INJECTION_MODE?: string;
   EMBEDDING_MODEL?: string;

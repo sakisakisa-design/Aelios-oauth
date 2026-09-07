@@ -781,52 +781,29 @@ test("memory plus thinking survives the entire simulated tool loop with upstream
   assert.deepEqual(calls[2].query.messages.slice(0, -1), mixed.messages.slice(0, -1));
 });
 
-test("semantic selector is wired across sources; helper calls never enter conversation storage", async () => {
+test("reranked recall is wired across sources and stays out of conversation storage", async () => {
   await run("/v1/chat/completions", {model:"partner",messages:[{role:"user",content:"请记住你喜欢下雨天喝热豆浆"}]});
   precious("partner-a", "下雨天，你答应永远找到旦九。");
   precious("partner-b", "下雨天其他身份的秘密。");
-  const ordinaryFetch=globalThis.fetch;
-  const seenPayloads:any[]=[];
-  setConfig({...config(),settings:{RECALL_SELECTOR_MODEL:"provider/selector"}});
-  invalidateSettingsCache();
-  globalThis.fetch=async(url,init)=>{
-    const body=JSON.parse(init?.body as string);
-    if(body.model!=="provider/selector")return ordinaryFetch(url,init);
-    const payload=JSON.parse(body.messages[1].content);seenPayloads.push(payload);
-    const selected=payload.candidates.find((c:any)=>c.windows.some((w:any)=>w.text.includes("热豆浆")));
-    assert.ok(selected);
-    assert.ok(payload.candidates.some((c:any)=>c.kind==="precious"));
-    assert.ok(payload.candidates.every((c:any)=>c.space==="partner-a"));
-    return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify({intent:"association",selected:[selected.id],assessments:payload.candidates.map((c:any)=>({
-      id:c.id,window:0,purpose:c.id===selected.id?"association":"none",answerable:true,event_status:"occurred",event_date:"",event_key:c.id,reason:c.id===selected.id?"雨天早餐偏好与这次闲聊相关":"承诺与当前早餐话题无关"
-    }))})}}]});
-  };
   const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"下雨了，早餐吃点什么呢"}]});
   assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
-  assert.equal(seenPayloads.length,1);
   const prompt=calls.at(-1).query.messages[0].content;
   assert.match(prompt,/热豆浆/);assert.doesNotMatch(prompt,/永远|秘密|event_key/);
   assert.equal((prompt.match(/^- /gm)||[]).length,1);
-  assert.equal(queue.length,2);assert.ok(queue.every(e=>e.model!=="provider/selector"));
   const history=await run("/api/gateway/recalls?identity=partner");
   const records=JSON.parse(history.text).items;
-  const trace=records.find((r:any)=>r.selection?.status==="semantic");
-  assert.ok(trace.decisions.some((d:any)=>d.kind==="precious"&&!d.injected&&d.reason.includes("无关")));
+  const trace=records.find((r:any)=>r.selection?.status==="reranked");
   assert.ok(trace.decisions.some((d:any)=>d.injected&&d.excerpt.includes("热豆浆")));
 });
 
-test("semantic failure continues the chat and remains distinguishable in recall history", async () => {
+test("reranker failure continues the chat with a lexical fallback", async () => {
   precious("partner-a","你喜欢雨天喝热豆浆。");
-  setConfig({...config(),settings:{RECALL_SELECTOR_MODEL:"provider/selector"}});
-  invalidateSettingsCache();
-  const ordinaryFetch=globalThis.fetch;
-  globalThis.fetch=async(url,init)=>JSON.parse(init?.body as string).model==="provider/selector"
-    ? Response.json({error:"down"},{status:503}) : ordinaryFetch(url,init);
+  env.AI={async run(){throw new Error("down");}};
   const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"雨天喝什么"}]});
-  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"empty");
-  assert.doesNotMatch(calls.at(-1).query.messages[0].content,/Aelios 记忆/);
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  assert.match(calls.at(-1).query.messages[0].content,/热豆浆/);
   const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
-  assert.equal(rows[0].selection.status,"error");assert.equal(rows[0].selection.reason,"selector_http_503");
+  assert.equal(rows[0].selection.status,"lexical");assert.equal(rows[0].selection.reason,"reranker_failed");
   assert.equal((await run("/api/gateway/recalls?identity=partner",undefined,{authorization:"Bearer im-key"})).response.status,401);
   assert.equal((await run("/api/gateway/recalls?identity=missing")).response.status,400);
 });
@@ -867,18 +844,18 @@ test("default recall batches ordinary memories and precious across spaces once, 
   assert.match(calls[0].query.messages[0].content,/记忆平台/);
   assert.doesNotMatch(calls[0].query.messages[0].content,/珍贵回忆|秘密|rank-fact|0.92/);
   const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
-  assert.equal(trace.selection.status,"reranked");assert.equal(trace.selection.threshold,0.5);
+  assert.equal(trace.selection.status,"reranked");assert.equal(trace.selection.threshold,0.25);
   assert.ok(Number.isFinite(trace.selection.elapsed_ms));
   assert.ok(trace.decisions.some((d:any)=>d.score===0.92&&d.injected));
   assert.ok(trace.decisions.some((d:any)=>d.score===0.2&&!d.injected));
   assert.equal(queue.length,1);assert.equal(queue[0].userText,"Cloudflare 平台");
 });
-test("Workers AI failure is visible in history while chat proceeds without a memory patch", async () => {
+test("Workers AI failure continues the chat with a lexical fallback", async () => {
   precious("partner-a","你喜欢 Cloudflare。");
   env.AI.run=async()=>{throw new Error("not available");};
   const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 好用吗"}]});
-  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"empty");
-  assert.equal(calls[0].query.messages[0].content,"Cloudflare 好用吗");
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  assert.match(calls[0].query.messages[0].content,/Cloudflare/);
   const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
-  assert.equal(trace.selection.reason,"reranker_failed");assert.equal(queue.length,1);
+  assert.equal(trace.selection.status,"lexical");assert.equal(trace.selection.reason,"reranker_failed");assert.equal(queue.length,1);
 });

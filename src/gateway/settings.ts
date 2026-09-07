@@ -3,11 +3,9 @@ import type { Env } from "../types";
 // Everything here is editable from /admin, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
-  { group: "记忆召回", name: "RECALL_RERANK_MIN_SCORE", label: "原文重排分数下限", hint: "默认 0.5，低于此值不注入。只是初始值，请结合下方召回记录调整；分数不是正确率，不同模型不可直接比较" },
-  { group: "记忆召回", name: "RECALL_RERANK_TIMEOUT_MS", label: "原文重排最多等多久（毫秒）", hint: "默认 1500，上限 5000。超时本轮不注入，聊天继续；迟到结果会丢弃，但 CF 调用可能仍会完成并计费" },
-  { group: "记忆召回", name: "MEMORY_RERANKER_MODEL", label: "原文重排模型", hint: "默认 @cf/baai/bge-reranker-base，通过 Worker 的 AI 绑定调用。所有来源一次批量打分，不生成记忆正文" },
-  { group: "记忆召回", name: "RECALL_SELECTOR_MODEL", label: "实验性 LLM 判断模型（可选）", hint: "默认留空，使用原文重排＋规则。填写 CF 网关支持的 author/model 会替代重排，增加模型调用延迟；已有 Worker 同名变量也需清除才能恢复默认" },
-  { group: "记忆召回", name: "RECALL_SELECTOR_TIMEOUT_MS", label: "可选 LLM 判断最多等多久（毫秒）", hint: "默认 5000，上限 15000，仅在配置 LLM 判断模型时生效。超时本轮不注入" },
+  { group: "记忆召回", name: "RECALL_RERANK_MIN_SCORE", label: "原文重排分数下限", hint: "默认 0.25，低于此值不注入。只是初始值，请结合下方召回记录调整；分数不是正确率，不同模型不可直接比较" },
+  { group: "记忆召回", name: "RECALL_RERANK_TIMEOUT_MS", label: "原文重排最多等多久（毫秒）", hint: "默认 1500，上限 5000。超时改走词面 top-1，聊天继续；迟到结果会丢弃，但 CF 调用可能仍会完成并计费" },
+  { group: "记忆召回", name: "MEMORY_RERANKER_MODEL", label: "原文重排模型", hint: "默认 @cf/baai/bge-reranker-base，通过 Worker 的 AI 绑定调用。所有来源一次批量打分，不生成记忆正文。失败时回落词面命中，不补调 LLM" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_OUTPUT", label: "每次注入几条记忆", hint: "日常建议 1–2 条；显式搜索不受影响。0 表示本轮不注入" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "显式搜索的重排文本长度", hint: "自动注入使用不超过 400 字的连续原文窗口，不受此项控制；显式搜索返回完整内容和 ID" },
   { group: "记忆召回", name: "MEMORY_TOP_K", label: "先从向量库取多少条", hint: "取回来再交给重排模型挑" },
@@ -43,6 +41,7 @@ export const SETTINGS: SettingSpec[] = [
   { group: "高级 · 改了要重建向量库", name: "VECTORIZE_INDEX_NAME", label: "Vectorize 索引名" }
 ];
 export const SETTING_NAMES = new Set(SETTINGS.map(s => s.name));
+const RETIRED_SETTINGS = new Set(["RECALL_SELECTOR_MODEL", "RECALL_SELECTOR_TIMEOUT_MS"]);
 
 // Credentials stay Worker Secrets; the page only reports whether they exist.
 export const SECRET_SPECS: { name: string; label: string }[] = [
@@ -60,6 +59,7 @@ export function validateSettings(value: unknown): Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("settings must be an object");
   const out: Record<string, string> = {};
   for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (RETIRED_SETTINGS.has(name)) continue;
     if (!SETTING_NAMES.has(name)) throw new Error(`Unknown setting: ${name}`);
     if (typeof raw !== "string") throw new Error(`${name}: settings values must be strings`);
     const trimmed = raw.trim();

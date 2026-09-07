@@ -121,7 +121,7 @@ export async function recallPatch(
   for (let i = 0; i < Math.max(0, ...lists.map(list => list.length)); i++) {
     for (const list of lists) if (list[i]) entries.push(list[i]);
   }
-  const selection = await selectRecall(env, await loadConfig(env), {
+  const selection = await selectRecall(env, {
     query, recent, visible: options.excludeVisibleIn, entries, maxItems: budget.maxItems
   });
   const assembled = assembleRecallSurface(selection.entries, {

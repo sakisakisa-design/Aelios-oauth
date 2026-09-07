@@ -102,7 +102,7 @@ test('recall history in admin follows the selected assistant and keeps empty/err
   app.request = async (path: string) => {
     paths.push(path);
     return path.startsWith('/api/gateway/recalls')
-      ? { items: [{ id: app.selectedIdentity, injected: 0, selection: { status: 'error', reason: 'selector_timeout' } }] }
+      ? { items: [{ id: app.selectedIdentity, injected: 0, selection: { status: 'lexical', reason: 'reranker_timeout' } }] }
       : { data: {} };
   };
   await app.loadRecallHistory();
