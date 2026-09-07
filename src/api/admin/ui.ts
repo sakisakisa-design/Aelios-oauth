@@ -983,9 +983,11 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
               <summary class="cursor-pointer text-sm" x-text="record.query || '本轮召回'"></summary>
               <p class="mt-2 text-xs text-zinc-400" x-text="fmt(record.created_at) + ' · ' + recallStatusLabel(record.selection && record.selection.status) + ' · 注入 ' + (record.injected || 0) + ' 条'"></p>
               <p class="mt-1 text-xs text-zinc-400" x-text="recallReasonLabel(record.selection && record.selection.reason)"></p>
+              <p class="mt-1 text-xs text-zinc-400" x-show="record.selection && record.selection.threshold != null" x-text="record.selection ? '分数下限 ' + record.selection.threshold + (record.selection.elapsed_ms != null ? ' · 重排与筛选 ' + record.selection.elapsed_ms + ' ms' : '') + ' · 分数不是正确率' : ''"></p>
               <template x-for="(decision, i) in (record.decisions || [])" :key="i">
                 <div class="mt-2 border-t border-zinc-800 pt-2">
                   <p class="text-xs" :class="decision.injected ? 'text-coral' : 'text-zinc-400'" x-text="(decision.injected ? '已选 · ' : '未选 · ') + recallReasonLabel(decision.reason)"></p>
+                  <p class="mt-1 text-xs text-zinc-400" x-show="decision.score != null" x-text="decision.score != null ? '相关分数 ' + Number(decision.score).toFixed(3) : ''"></p>
                   <p class="mt-1 whitespace-pre-wrap text-sm" x-text="decision.excerpt || ''"></p>
                   <p class="mt-1 break-all text-[11px] text-zinc-500" x-text="(decision.namespace || '') + ' / ' + (decision.id || decision.kind || '')"></p>
                 </div>
@@ -1350,10 +1352,10 @@ function memoryAdmin() {
       }, 2400);
     },
     recallStatusLabel(status) {
-      return { semantic: '模型判断', lexical: '简单词面筛选', empty: '没有候选', error: '判断失败，本轮未注入' }[status] || '旧版召回';
+      return { semantic: '可选 LLM 判断', reranked: '原文重排＋规则', lexical: '简单词面筛选', empty: '没有候选', error: '判断失败，本轮未注入' }[status] || '旧版召回';
     },
     recallReasonLabel(reason) {
-      const labels = { selector_not_configured: '尚未配置召回判断模型', latest_requires_selector: '需要判断事件先后，请配置召回判断模型', selector_timeout: '判断超时，聊天照常继续', selector_invalid_response: '判断模型返回了无法验证的结果', selector_incomplete_response: '判断模型的回答不完整', duplicate_content: '同一内容只保留一份', already_visible: '聊天历史里已经有了', item_budget: '已选出更合适的记忆', candidate_budget: '超过本次候选数量', no_lexical_support: '简单筛选没有找到对应词语', lexical_fallback_selected: '简单筛选找到了相关词语', empty_content: '没有可用正文' };
+      const labels = { no_safe_window: '没有能完整保留局部上下文的短片段', rerank_selected: '原文片段相关，已通过规则筛选', below_rerank_threshold: '相关分数不足，不凑数', duplicate_source: '同一来源本次只占一个位置', conflicting_fact_records: '同一事实有不同版本，不能靠相关分数决定', impression_not_evidence: '日记印象不当作事实证据', latest_requires_evidence: '相关性无法确定最近一次，本轮不注入', reranker_timeout: '原文重排超时，聊天继续', reranker_missing_binding: '缺少 Worker AI 绑定，本轮不注入', reranker_disabled: '重排已关闭，本轮不注入', reranker_unsupported_model: '请配置 Workers AI 重排模型', reranker_invalid_response: '重排分数或编号未通过校验', reranker_failed: '原文重排调用失败，本轮不注入', selector_not_configured: '尚未配置召回判断模型', latest_requires_selector: '需要判断事件先后，请配置召回判断模型', selector_timeout: '判断超时，聊天照常继续', selector_invalid_response: '判断模型返回了无法验证的结果', selector_incomplete_response: '判断模型的回答不完整', duplicate_content: '同一内容只保留一份', already_visible: '聊天历史里已经有了', item_budget: '已选出更合适的记忆', candidate_budget: '超过本次候选数量', no_lexical_support: '简单筛选没有找到对应词语', lexical_fallback_selected: '简单筛选找到了相关词语', empty_content: '没有可用正文' };
       if (labels[reason]) return labels[reason];
       if ((reason || '').startsWith('selector_http_')) return '判断模型请求失败（HTTP ' + reason.slice(14) + '）';
       if ((reason || '').startsWith('selector_')) return '判断结果未通过校验（' + reason + '）';

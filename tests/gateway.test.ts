@@ -9,7 +9,9 @@ import { appendMemory, classifyTurn, canonical } from "../src/gateway/protocol";
 import { catalogUrl, resolveUpstream, routeFor, toolCacheRejections } from "../src/gateway/upstream";
 import { OutputCollector, observeResponse, persistExchange, prepareExchange, dispatchExchange } from "../src/gateway/record";
 
-// Test actual production modules and SQL, replacing only the external HTTP call.
+import { lexicalOverlapScore, shapeRecallQuery } from "../src/memory/queryShape";
+
+// Test production modules and SQL with deterministic HTTP and Workers AI doubles.
 (crypto.subtle as any).timingSafeEqual = (a: Uint8Array, b: Uint8Array) => timingSafeEqual(a, b);
 let sqlite: DatabaseSync;
 let db: any, env: any, ctx: any;
@@ -45,6 +47,11 @@ beforeEach(() => {
   ctx = { waitUntil(p: Promise<unknown>) { pending.push(p); } };
   env = { DB: db, CHATBOX_API_KEY: "owner-key", IM_API_KEY: "im-key", MEMORY_MCP_API_KEY: "mcp-key",
     CLOUDFLARE_API_TOKEN: "cf-token",
+    AI: { async run(model: string, data: any) {
+      if (!model.includes("reranker")) throw new Error("embedding unavailable in test");
+      return { response: data.contexts.map((c: any, id: number) => ({ id,
+        score: lexicalOverlapScore(c.text, shapeRecallQuery({ query: data.query }).lexicalTokens) > 0 ? 0.9 : 0.01 })) };
+    } },
     MEMORY_QUEUE: { async send(e: any) { queue.push(e); } } };
   globalThis.fetch = async (url: any, init: any) => {
     if (String(url).endsWith("/models")) {
@@ -838,4 +845,40 @@ test('retired gateway page redirects to the unified admin without reading creden
   assert.equal(response.status, 302);
   assert.equal(response.headers.get('location'), '/admin');
   assert.equal(await response.text(), '');
+});
+
+test("default recall batches ordinary memories and precious across spaces once, and exposes scores", async () => {
+  setConfig({...config(),identities:[{...identity(),readNamespaces:["partner-a","shared"]}]});
+  precious("shared","Cloudflare 还有一条珍贵回忆。");
+  precious("private","Cloudflare 其他空间的秘密。");
+  sqlite.prepare(`INSERT INTO memories (id, namespace, type, content, importance, confidence, created_at, updated_at)
+    VALUES ('rank-fact', 'partner-a', 'fact', 'Cloudflare 是我们用的记忆平台。', 1, 1, '2026-09-06', '2026-09-06')`).run();
+  let rankingCalls=0;
+  env.AI.run=async(model:string,data:any)=>{
+    if(!model.includes("reranker"))throw new Error("embedding unavailable in test");
+    rankingCalls++;
+    assert.ok(data.contexts.some((c:any)=>c.text.includes("记忆平台")));
+    assert.ok(data.contexts.some((c:any)=>c.text.includes("珍贵回忆")));
+    assert.ok(data.contexts.every((c:any)=>!c.text.includes("秘密")));
+    return {response:data.contexts.map((c:any,id:number)=>({id,score:c.text.includes("记忆平台")?0.92:0.2}))};
+  };
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 平台"}]});
+  assert.equal(result.response.status,200);assert.equal(rankingCalls,1);assert.equal(calls.length,1);
+  assert.match(calls[0].query.messages[0].content,/记忆平台/);
+  assert.doesNotMatch(calls[0].query.messages[0].content,/珍贵回忆|秘密|rank-fact|0.92/);
+  const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
+  assert.equal(trace.selection.status,"reranked");assert.equal(trace.selection.threshold,0.5);
+  assert.ok(Number.isFinite(trace.selection.elapsed_ms));
+  assert.ok(trace.decisions.some((d:any)=>d.score===0.92&&d.injected));
+  assert.ok(trace.decisions.some((d:any)=>d.score===0.2&&!d.injected));
+  assert.equal(queue.length,1);assert.equal(queue[0].userText,"Cloudflare 平台");
+});
+test("Workers AI failure is visible in history while chat proceeds without a memory patch", async () => {
+  precious("partner-a","你喜欢 Cloudflare。");
+  env.AI.run=async()=>{throw new Error("not available");};
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 好用吗"}]});
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"empty");
+  assert.equal(calls[0].query.messages[0].content,"Cloudflare 好用吗");
+  const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
+  assert.equal(trace.selection.reason,"reranker_failed");assert.equal(queue.length,1);
 });

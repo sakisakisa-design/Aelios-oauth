@@ -59,7 +59,7 @@ export async function recallPatch(
     const precious = await listPrecious(env.DB, { namespace, limit: 80 });
     const relevantPrecious = selectRelevantPrecious(precious, shaped.lexicalTokens);
     const [recall, quotes] = await Promise.all([
-      runRecall(env.RECALL_SELECTOR_MODEL?.trim() ? { ...env, ENABLE_MEMORY_RERANKER: "false" } : env, {
+      runRecall({ ...env, ENABLE_MEMORY_RERANKER: "false" }, {
         namespace,
         query,
         recent,
@@ -160,7 +160,8 @@ export async function recallPatch(
       week_blocks: available.reduce((n, s) => n + s.weekBlocks.length, 0),
       candidates: entries.length
     },
-    selection: { status: selection.status, model: selection.model, reason: selection.reason },
+    selection: { status: selection.status, model: selection.model, reason: selection.reason,
+      threshold: selection.threshold, elapsed_ms: selection.elapsedMs },
     decisions: selection.decisions.map(decision => ({ ...decision,
       injected: assembled.entries.some(entry => entry.id === decision.id && entry.namespace === decision.namespace && entry.kind === decision.kind)
     })),

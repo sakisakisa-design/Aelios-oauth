@@ -5,6 +5,7 @@ import { resolveUpstream, routeFor } from "../gateway/upstream";
 import { cleanMessageText } from "../utils/sanitize";
 import { dateOptions, evidenceWindows, formatExactExcerpt, resolveAssessedSelection, type RecallCandidate } from "./dankeRecall";
 import { isEvidenceQuery, lexicalOverlapScore, shapeRecallQuery } from "./queryShape";
+import { scoreRecallSpans, spanRerankerSettings } from "./spanReranker";
 import { IMPRESSION_DISCLAIMER } from "./impression";
 import type { SurfaceEntry } from "./surface";
 
@@ -19,13 +20,16 @@ export interface RecallDecision {
   window?: number;
   purpose?: string;
   excerpt?: string;
+  score?: number;
 }
 export interface SelectorResult {
   entries: SurfaceEntry[];
   decisions: RecallDecision[];
-  status: "semantic" | "lexical" | "empty" | "error";
+  status: "semantic" | "reranked" | "empty" | "error";
   reason?: string;
   model?: string;
+  threshold?: number;
+  elapsedMs?: number;
 }
 export interface SelectorInput {
   query: string;
@@ -41,6 +45,29 @@ const canonical = (s: string) => s.toLowerCase().replace(/[\s\p{P}]/gu, "");
 const trace = (entry: SurfaceEntry, reason: string): RecallDecision => ({
   id: entry.id, namespace: entry.namespace, kind: entry.kind, reason
 });
+
+/** Keep short records intact. Long-record windows include the preceding sentence.
+ * Never cut an oversized sentence into a claim stripped of its opening condition.
+ * Local context preservation is not a proof of entailment or speaker attribution.
+ */
+export function contextualWindows(content: string, query: string): string[] {
+  const sections = content.split(/(?:^|\n)(?:【对话归档\s+v\d+\s+[^】]*】|(?:摘要|事实|原话|情绪)[：:]?)[ \t]*(?=\n|$)/g).map(s => s.trim()).filter(Boolean);
+  if (sections.length !== 1 || sections[0] !== content) return sections.flatMap(s => contextualWindows(s, query));
+  if (content.length <= 400) return [content];
+  const units = [...content.matchAll(/[^\n。！？；]+(?:[。！？；]+|\n|$)/g)];
+  const spans: string[] = [];
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    const start = units[Math.max(0, i - 1)].index!;
+    const end = unit.index! + unit[0].length;
+    const text = content.slice(start, end).trim();
+    if (text && text.length <= 400) spans.push(text);
+  }
+  // Reuse the bounded nomination order, but return the complete contextual span.
+  const nominated = evidenceWindows(content, query);
+  return [...new Set(spans)].sort((a, b) =>
+    Number(nominated.some(w => b.includes(w))) - Number(nominated.some(w => a.includes(w))));
+}
 
 export function prepareSelectorCandidates(input: SelectorInput): { candidates: SelectorCandidate[]; decisions: RecallDecision[] } {
   const shaped = shapeRecallQuery({ query: input.query, recent: input.recent });
@@ -63,9 +90,9 @@ export function prepareSelectorCandidates(input: SelectorInput): { candidates: S
     for (const id of sourceKeys) {
       const texts = seenSources.get(id) || new Set<string>(); texts.add(textKey); seenSources.set(id, texts);
     }
-    let windows = evidenceWindows(content, shaped.embeddingQuery);
-    windows = windows.filter(w => !visible || !visible.includes(canonical(w)));
-    if (!windows.length) { decisions.push(trace(entry, "already_visible")); continue; }
+    const allWindows = contextualWindows(content, shaped.embeddingQuery);
+    let windows = allWindows.filter(w => !visible || !visible.includes(canonical(w)));
+    if (!windows.length) { decisions.push(trace(entry, allWindows.length ? "already_visible" : "no_safe_window")); continue; }
     if (candidates.length >= MAX_CANDIDATES) { decisions.push(trace(entry, "candidate_budget")); continue; }
     // Preserve source order after selecting bounded windows; lexical rank only nominates.
     const ranked = windows.map((w, i) => ({ i, score: lexicalOverlapScore(w, shaped.lexicalTokens) }))
@@ -180,20 +207,59 @@ function renderSpan(c: SelectorCandidate, window: number, purpose: "answer" | "a
   return { ...c.entry, exact: true, window, purpose, content: prefix + formatExactExcerpt(c.windows[window], purpose) };
 }
 
-function lexicalSelection(input: SelectorInput, candidates: SelectorCandidate[]): SelectorResult {
-  const shaped = shapeRecallQuery({ query: input.query, recent: input.recent });
-  if (LATEST.test(input.query)) return { status: "lexical", reason: "latest_requires_selector", entries: [],
-    decisions: candidates.map(c => trace(c.entry, "latest_requires_selector")) };
+async function rerankedSelection(env: Env, input: SelectorInput, candidates: SelectorCandidate[]): Promise<SelectorResult> {
+  const { model, threshold } = spanRerankerSettings(env);
+  const start = Date.now();
+  const base = { model, threshold };
+  // A relevance score cannot establish which event occurred last, even with dates.
+  if (LATEST.test(input.query)) return { ...base, status: "empty", reason: "latest_requires_evidence", entries: [],
+    decisions: candidates.map(c => trace(c.entry, "latest_requires_evidence")) };
   const purpose = isEvidenceQuery(input.query) ? "answer" : "association";
-  const ranked = candidates.map(c => {
-    const scores = c.windows.map(w => lexicalOverlapScore(w, shaped.lexicalTokens));
-    const score = Math.max(...scores);
-    return { c, score, window: scores.indexOf(score) };
-  }).sort((a, b) => b.score - a.score);
-  const limit = Math.min(input.maxItems, purpose === "answer" ? 2 : 1);
-  const chosen = ranked.filter(r => r.score > 0 && !(purpose === "answer" && r.c.entry.kind === "impression")).slice(0, limit);
-  return { status: "lexical", reason: "selector_not_configured", entries: chosen.map(r => renderSpan(r.c, r.window, purpose)),
-    decisions: ranked.map(r => ({ ...trace(r.c.entry, chosen.includes(r) ? "lexical_fallback_selected" : r.score > 0 ? "item_budget" : "no_lexical_support"), window: r.window, excerpt: r.c.windows[r.window] })) };
+  const shaped = shapeRecallQuery({ query: input.query, recent: input.recent });
+  const spans = candidates.flatMap(c => c.windows.map((text, window) => ({ c, text, window })));
+  try {
+    const scores = await scoreRecallSpans(env, shaped.embeddingQuery, spans.map(s =>
+      s.c.entry.speaker ? `${s.c.entry.speaker}: ${s.text}` : s.text));
+    const ranked = candidates.map(c => {
+      const indices = spans.flatMap((s, i) => s.c === c ? [i] : []);
+      const best = indices.reduce((a, b) => scores[b] > scores[a] ? b : a);
+      return { ...spans[best], score: scores[best] };
+    }).sort((a, b) => b.score - a.score);
+    const entries: SurfaceEntry[] = [];
+    const decisions: RecallDecision[] = [];
+    const sources = new Set<string>();
+    const texts = new Set<string>();
+    const limit = Math.min(input.maxItems, purpose === "answer" ? 2 : 1);
+    // Conflicting records with the same explicit fact key cannot be resolved by relevance.
+    const facts = new Map<string, Set<string>>();
+    for (const c of candidates) if (c.entry.factKey) {
+      const key = `${c.entry.namespace}\n${c.entry.factKey}`;
+      const values = facts.get(key) || new Set<string>();
+      values.add(canonical(c.entry.content)); facts.set(key, values);
+    }
+    for (const r of ranked) {
+      const sourceKeys = (r.c.entry.sourceIds || []).map(id => `${r.c.entry.namespace}\n${id}`);
+      const conflict = r.c.entry.factKey && (facts.get(`${r.c.entry.namespace}\n${r.c.entry.factKey}`)?.size || 0) > 1;
+      // This limits presentation only; never delete or combine the underlying records.
+      const textKey = `${r.c.entry.speaker || ""}\n${r.c.entry.eventDate || ""}\n${canonical(r.text)}`;
+      const reason = r.score < threshold ? "below_rerank_threshold"
+        : purpose === "answer" && r.c.entry.kind === "impression" ? "impression_not_evidence"
+        : conflict ? "conflicting_fact_records"
+        : texts.has(textKey) ? "duplicate_content"
+        : sourceKeys.some(id => sources.has(id)) ? "duplicate_source"
+        : entries.length >= limit ? "item_budget" : "rerank_selected";
+      if (reason === "rerank_selected") {
+        entries.push(renderSpan(r.c, r.window, purpose)); texts.add(textKey);
+        for (const key of sourceKeys) sources.add(key);
+      }
+      decisions.push({ ...trace(r.c.entry, reason), score: r.score, window: r.window, purpose, excerpt: r.text });
+    }
+    return { ...base, status: "reranked", entries, decisions, elapsedMs: Date.now() - start };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "reranker_failed";
+    return { ...base, status: "error", reason, entries: [], elapsedMs: Date.now() - start,
+      decisions: candidates.map(c => trace(c.entry, reason)) };
+  }
 }
 
 export async function selectRecall(env: Env, config: GatewayConfig, input: SelectorInput): Promise<SelectorResult> {
@@ -201,7 +267,7 @@ export async function selectRecall(env: Env, config: GatewayConfig, input: Selec
   if (!candidates.length || input.maxItems <= 0) return { status: "empty", entries: [], decisions };
   const model = env.RECALL_SELECTOR_MODEL?.trim();
   if (!model) {
-    const result = lexicalSelection(input, candidates);
+    const result = await rerankedSelection(env, input, candidates);
     return { ...result, decisions: [...decisions, ...result.decisions] };
   }
   const controller = new AbortController();
