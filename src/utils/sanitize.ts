@@ -93,19 +93,27 @@ function stripInstructionBlocks(text: string): string {
   return text;
 }
 
+/** Channel/harness status lines. Not speech — the send itself is in the tool call. */
+function isDeliveryReceipt(line: string): boolean {
+  const compact = line.replace(/\s+/g, "");
+  return /^(已回(?:她|他|你|完)?|已回复|已发送|已送达)[。.!！]*$/u.test(compact);
+}
+
 /** Whole-utterance (or trailing) templates that clients inject without tags. */
 function dropMachineProse(text: string): string {
-  return text
+  text = text
     .replace(/(?:^|\n)user stepped away;?\s*returning\.\s*recap:[\s\S]*$/i, "")
     .replace(/(?:^|\n)recap:\s*<[\s\S]*$/i, "")
     .replace(/(?:^|\n)today:\s*\d{4}-\d{2}-\d{2}\b[\s\S]*current working directory[\s\S]*$/i, "")
     .trim();
+  return text.split("\n").filter((line) => !isDeliveryReceipt(line.trim())).join("\n").trim();
 }
 
 /**
  * Keep the human sentence. Unwrap IM transport envelopes; drop client
- * recap / system-reminder / hook blocks. Ordinary prose that happens to
- * mention `<message>` or the word recap is left untouched.
+ * recap / system-reminder / hook blocks and delivery receipts like 「已回她」.
+ * Ordinary prose that happens to mention `<message>` or the word recap is
+ * left untouched.
  */
 export function cleanMessageText(input: string): string {
   let text = input.replace(/\r\n/g, "\n").trim();
