@@ -520,7 +520,7 @@ test("please-remember writes the original words into long-term memory", async ()
     ]
   });
   assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
-  assert.match(JSON.stringify(calls[1].query.messages), /- 调试暗号是芝麻开门/);
+  assert.match(JSON.stringify(calls[1].query.messages), /回答旧事：「调试暗号是芝麻开门」/);
 });
 
 test("evidence recall keeps a distilled memory instead of repeating its source quote", async () => {
@@ -534,7 +534,7 @@ test("evidence recall keeps a distilled memory instead of repeating its source q
   });
   assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
   const injected = JSON.stringify(calls[1].query.messages);
-  assert.match(injected, /- 调试暗号是芝麻开门/);
+  assert.match(injected, /回答旧事：「调试暗号是芝麻开门」/);
   assert.doesNotMatch(injected, /请记住调试暗号|用户: 「/);
 });
 

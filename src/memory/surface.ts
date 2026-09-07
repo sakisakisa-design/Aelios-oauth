@@ -11,6 +11,10 @@ export interface SurfaceEntry {
   namespace?: string;
   /** Raw quote ids for trace/debug only; never rendered into the prompt. */
   sourceIds?: string[];
+  /** Already a bounded evidence window; do not re-truncate the stored sentence. */
+  exact?: boolean;
+  window?: number;
+  purpose?: "answer" | "association";
 }
 
 export interface SurfaceOptions {
@@ -34,13 +38,19 @@ export function assembleRecallSurface(entries: SurfaceEntry[], options: SurfaceO
   const maxItems = options.maxItems ?? entries.length;
   const maxChars = options.maxChars ?? Number.POSITIVE_INFINITY;
   const cleaned = entries
-    .map((entry) => ({
-      kind: entry.kind.trim(),
-      content: truncateEntry(cleanMessageText(entry.content), maxChars),
-      ...(entry.id ? { id: entry.id } : {}),
-      ...(entry.namespace ? { namespace: entry.namespace } : {}),
-      ...(entry.sourceIds?.length ? { sourceIds: entry.sourceIds } : {})
-    }))
+    .map((entry) => {
+      const text = cleanMessageText(entry.content);
+      return {
+        kind: entry.kind.trim(),
+        content: entry.exact ? text : truncateEntry(text, maxChars),
+        ...(entry.id ? { id: entry.id } : {}),
+        ...(entry.namespace ? { namespace: entry.namespace } : {}),
+        ...(entry.sourceIds?.length ? { sourceIds: entry.sourceIds } : {}),
+        ...(entry.exact ? { exact: true } : {}),
+        ...(entry.window !== undefined ? { window: entry.window } : {}),
+        ...(entry.purpose ? { purpose: entry.purpose } : {})
+      };
+    })
     .filter((entry) => entry.kind && entry.content)
     .slice(0, Math.max(maxItems, 0));
   if (cleaned.length === 0) return { text: "", entries: [] };
@@ -55,6 +65,7 @@ export function assembleRecallSurface(entries: SurfaceEntry[], options: SurfaceO
   for (const entry of cleaned) {
     const remaining = budget - overhead - usedChars;
     if (remaining <= 24) break;
+    if (entry.exact && entry.content.length + 4 > remaining) continue;
     const content = entry.content.length + 4 > remaining
       ? `${entry.content.slice(0, Math.max(remaining - 4, 8)).trim()}…`
       : entry.content;

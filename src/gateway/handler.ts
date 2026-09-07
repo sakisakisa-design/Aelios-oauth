@@ -3,6 +3,7 @@ import { markMemoriesInjected, listPrecious } from "../db/v2";
 import { recallInjectionBudget } from "../memory/filter";
 import { IMPRESSION_DISCLAIMER } from "../memory/impression";
 import { isEvidenceQuery, isPreciousRelevant, isTemporalQuery, selectRelevantPrecious, shapeRecallQuery } from "../memory/queryShape";
+import { excerptAdmittedMemories, formatExactExcerpt } from "../memory/dankeRecall";
 import { formatQuote, keepUncoveredQuotes, searchQuotes } from "../memory/quotes";
 import { assembleRecallSurface, type SurfaceEntry } from "../memory/surface";
 import { buildCoreFingerprint, runRecall } from "../memory/v2/recall";
@@ -87,10 +88,19 @@ export async function recallPatch(
       )
       : [];
 
-    const regularHits = recall.hits;
+    const purpose = evidence ? "answer" as const : "association" as const;
+    const excerpts = excerptAdmittedMemories(
+      recall.hits.map((hit) => ({ id: hit.id, content: hit.content, recorded_date: hit.recorded_date })),
+      query,
+      purpose
+    );
+    const excerptById = new Map(excerpts.map((item) => [item.id, item]));
+    const regularHits = excerpts
+      .map((item) => recall.hits.find((hit) => hit.id === item.id))
+      .filter((hit): hit is NonNullable<typeof hit> => !!hit);
     const { kept: uncoveredQuotes, dropped: coveredQuotes } = keepUncoveredQuotes(
       quotes,
-      [...relevantPrecious.map((row) => row.content), ...regularHits.map((hit) => hit.content)]
+      [...relevantPrecious.map((row) => row.content), ...excerpts.map((item) => item.excerpt)]
     );
     const quoteEntries = uncoveredQuotes.map((hit) => ({
       kind: "quote",
@@ -106,7 +116,17 @@ export async function recallPatch(
       ...quoteEntries,
       ...relevantPrecious.map(p => ({ kind: "precious", content: p.content, id: p.id })),
       ...recall.glossary_hits.map(p => ({ kind: "glossary", content: `${p.term}: ${p.definition}` })),
-      ...regularHits.map(p => ({ kind: memoryKind(p.source, p.type, p.authored_by), content: p.content, id: p.id })),
+      ...regularHits.map((p) => {
+        const span = excerptById.get(p.id)!;
+        return {
+          kind: memoryKind(p.source, p.type, p.authored_by),
+          content: formatExactExcerpt(span.excerpt, span.purpose),
+          id: p.id,
+          exact: true,
+          window: span.window,
+          purpose: span.purpose
+        };
+      }),
       ...weekBlocks.map(p => ({ kind: "impression", content: `${IMPRESSION_DISCLAIMER} ${p.week}: ${p.summary}` }))
     ].map(entry => ({ ...entry, namespace }));
     return { namespace, entries, relevantPrecious, quotes: uncoveredQuotes, regularHits, weekBlocks, coveredQuotes, droppedPrecious };
@@ -179,7 +199,11 @@ export async function recallPatch(
           ? "precious_lexical"
           : entry.kind === "authored"
             ? "authored_verbatim"
-            : "recall_hit"
+            : entry.exact
+              ? "exact_window"
+              : "recall_hit",
+      window: entry.window ?? null,
+      purpose: entry.purpose ?? null
     })),
     excluded: [
       ...available.flatMap(s => s.coveredQuotes.map(hit => ({ id: hit.id, namespace: s.namespace, reason: "quote_covered_by_memory" }))),
