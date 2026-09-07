@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 
-// Everything here is editable from /admin/gateway, so Worker settings only needs the API key.
+// Everything here is editable from /admin, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
   { group: "记忆召回", name: "RECALL_SELECTOR_MODEL", label: "召回判断模型", hint: "填 CF 网关支持的 author/model，所有来源一起判断，只摘原文。留空用简单词面筛选；配置后替代自动召回的重排，闲聊最多 1 条，回答旧事最多 2 条" },

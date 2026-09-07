@@ -14,7 +14,7 @@ export async function handleModels(request: Request, env: Env, slug: string | nu
   catch { return openAiError("Gateway configuration unavailable. Apply migrations.", 503); }
 
   const identity = findIdentity(config, auth, slug);
-  if (!identity) return openAiError("No identity available for this key. Configure /admin/gateway.", 403);
+  if (!identity) return openAiError("No identity available for this key. Configure /admin.", 403);
 
   // The catalog lives on the AI Gateway compat surface; CF REST has no GET /models (405).
   const token = env.CLOUDFLARE_API_TOKEN;

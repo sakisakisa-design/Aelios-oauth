@@ -832,3 +832,10 @@ test("recall history filters identities sharing the same write space", async () 
   const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
   assert.equal(rows.length,1);assert.equal(rows[0].identity,"partner");
 });
+
+test('retired gateway page redirects to the unified admin without reading credentials or configuration', async () => {
+  const response = await worker.fetch(new Request('https://aelios.test/admin/gateway'), {} as any, ctx);
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/admin');
+  assert.equal(await response.text(), '');
+});

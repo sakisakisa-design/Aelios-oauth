@@ -153,7 +153,7 @@ Cloudflare Workers 上的记忆网关。帮用户部署时只关联**用户自�
 
 CF 上游：chat 走 compat（全厂商，BYOK）；messages / responses 走各厂商原生端点。模型名原样透传，厂商认不出来由上游报错。自定义 OpenAI 兼容地址原样转发。
 
-配置三层，都在 `/admin` 设置（或 `/admin/gateway`）：上游、助手、环境参数。优先级：面板保存的 > `GATEWAY_CONFIG` > 空配置。
+配置三层，都在 `/admin` 的「设置」：上游、助手、环境参数。优先级：面板保存的 > `GATEWAY_CONFIG` > 空配置。
 
 ### 常用端点
 

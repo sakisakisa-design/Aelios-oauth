@@ -26,7 +26,7 @@ Aelios 负责身份、临时召回和自动记录，客户端 Harness 负责工�
 
 ## 配置模型
 
-配置只有三层，全部在 `/admin/gateway` 页面完成：
+配置只有三层，全部在 `/admin` 的「设置」里完成：
 
 1. **连接**：CF 账号 ID（或完整地址）。token 不放面板，放 Worker Secret `CLOUDFLARE_API_TOKEN`。
 2. **助手**：每位三格——名字（slug，即 URL 路径段）、主模型列表、可用钥匙。
@@ -50,7 +50,7 @@ Aelios 负责身份、临时召回和自动记录，客户端 Harness 负责工�
 2. 按原部署流程创建 D1、Vectorize 和 Queue，应用全部 migrations，包含 `0012_memory_gateway.sql`。
 3. Worker Secrets 只放两把钥匙：`CHATBOX_API_KEY`（自己编的，进面板用）和 `CLOUDFLARE_API_TOKEN`
    （使用现有 AI Gateway token 权限配置；第三方 Provider 密钥在 CF BYOK 面板管理）。
-4. 打开 `/admin/gateway`，填 CF 账号 ID，添加助手（比如 `coder`），保存。
+4. 打开 `/admin`，填 CF 账号 ID，添加助手（比如 `coder`），保存。
 5. 客户端按助手接入：
 
 | 客户端 | 配置 |
@@ -73,13 +73,13 @@ Aelios 负责身份、临时召回和自动记录，客户端 Harness 负责工�
 纯图片仍原样转发，没有文本 query 时不召回。tool_result 旁有独立 text 块时，按新的用户指令处理。
 各记忆来源（普通记忆、珍贵、黑话、证据原话、日记印象）和已授权的召回空间统一产生候选，由一次最终选择决定注入。日常合计最多 1 条联想，回答旧事最多 2 条；`MEMORY_FILTER_MAX_OUTPUT` 可进一步收紧或设为 0。珍贵不会自动占据注入位置。原文按句子/换行切成不超过 400 字的窗口，程序按选择编号摘取，附「相关旧事，可自然提及，不作当前事实」或「回答旧事」用途；所有来源共用身份的字数预算。完整窗口放不下时跳过，继续尝试后面的条目。ID 和来源只留在管理记录中。显式 MCP / REST 搜索仍返回完整记录和 ID，不套自动注入预算。
 
-在 `/admin/gateway` 的环境设置填写 **召回判断模型** `RECALL_SELECTOR_MODEL`（CF compat 支持的 `author/model`）。它沿用面板上游地址、Gateway ID 和 Worker 的 `CLOUDFLARE_API_TOKEN`，不用第二套连接；选一个支持 Chat Completions JSON 输出的小模型即可，实际可用模型以自己的 Gateway 线路为准。配置后自动召回跳过旧的 Workers AI 重排，由该模型统一判断，显式搜索继续沿用原有流程。
+在 `/admin` 的环境设置填写 **召回判断模型** `RECALL_SELECTOR_MODEL`（CF compat 支持的 `author/model`）。它沿用面板上游地址、Gateway ID 和 Worker 的 `CLOUDFLARE_API_TOKEN`，不用第二套连接；选一个支持 Chat Completions JSON 输出的小模型即可，实际可用模型以自己的 Gateway 线路为准。配置后自动召回跳过旧的 Workers AI 重排，由该模型统一判断，显式搜索继续沿用原有流程。
 
 每次判断最多 16 条候选、每条 4 个窗口，来源/空间轮流进入候选池。模型收到当前发言、最近 3 轮用户上下文（最多 1800 字）和末尾可见历史（最多 6000 字），逐候选判断人物、事件状态、用途、支持窗口及原因。同一事件的重复表述共用本次事件键；同事件相同状态和日期只占一个位置。入库日期与事件日期分开，问最近一次时不能把记录时间当发生时间、不能用旧答案补上最新事件的未知属性。日记印象不能作为事实答案。模型只能返回编号和判断，不能生成注入正文；引用、日期、结果完整性由程序校验。
 
 **留空判断模型**时仍可使用简单词面筛选，也统一为日常 0–1 条、答案最多 2 条；短句会参考最近上下文。它不具备人物/事件的语义判别能力，最新事件问题返回空，日志标明需要判断模型。配置了模型但调用失败、结果不合法或超时时，本轮不注入，聊天照常继续；不会悄悄退回词面结果。`RECALL_SELECTOR_TIMEOUT_MS` 默认 5000 毫秒、上限 15000，覆盖请求和读取响应，无自动重试。调用实际会增加延迟和模型费用；未用真实上游验证过的模型应先通过面板观察质量。
 
-`/admin/gateway` 的「为什么想起这件事」可按助手查看最近 20 次召回、候选摘句、选择理由、最终是否注入，以及空结果/错误。数据来自 `memory_events` 中的 `recall_explain`；`GET /api/gateway/recalls?identity=名字` 仅限主钥匙或维护钥匙。两个助手即使共用写入空间，记录也按助手过滤。旧日志缺少新字段时仍能查看。
+`/admin → 设置` 的「为什么想起这件事」可按助手查看最近 20 次召回、候选摘句、选择理由、最终是否注入，以及空结果/错误。数据来自 `memory_events` 中的 `recall_explain`；`GET /api/gateway/recalls?identity=名字` 仅限主钥匙或维护钥匙。两个助手即使共用写入空间，记录也按助手过滤。旧日志缺少新字段时仍能查看。
 
 原话引用只在证据问题（暗号、原话、说过、哪天、最近一次）打开；日常闲聊不扫 messages。所有来源都过滤已在请求历史里的同文窗口，重复候选只保留一份；进一步的事件语义去重由判断模型负责，不靠相似度删除数据库记录。上下文压缩移除的旧话可以再次召回。库里若本来就是归档摘要，摘出的仍是已存文字，不能恢复最初聊天措辞。
 
@@ -200,3 +200,5 @@ npx wrangler deploy --dry-run
 - [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/)
 - [CF Dynamic Routes](https://developers.cloudflare.com/ai-gateway/features/dynamic-routing/usage/)
 - [Anthropic preserved thinking](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)
+
+旧 `/admin/gateway` 页面已废弃，仅跳转到 `/admin`；网关设置与召回记录共用主面板的助手选择和 Token。

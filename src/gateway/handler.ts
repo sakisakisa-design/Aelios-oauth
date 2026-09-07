@@ -208,12 +208,12 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
   catch (error) { return gatewayError(protocol, error instanceof Error ? error.message : "Invalid JSON", 400); }
   let config;
   try { config = await loadConfig(env); }
-  catch { return gatewayError(protocol, "Gateway configuration unavailable. Apply migrations and check /admin/gateway.", 503); }
+  catch { return gatewayError(protocol, "Gateway configuration unavailable. Apply migrations and check /admin.", 503); }
   const identity = findIdentity(config, auth, slug);
   if (!identity) {
     return gatewayError(protocol, slug
-      ? `No identity "${slug}" available for this key. Configure /admin/gateway, then use https://<host>/<identity>/v1.`
-      : "This key has no identity. Configure one at /admin/gateway.", 403);
+      ? `No identity "${slug}" available for this key. Configure /admin, then use https://<host>/<identity>/v1.`
+      : "This key has no identity. Configure one at /admin.", 403);
   }
   // Only main models carry memory and feed Dream; every other model passes through quietly.
   const main = isMainModel(identity, body.model);

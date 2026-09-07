@@ -93,3 +93,46 @@ test('saving the first token loads identities instead of locking the panel to de
   assert.equal(app.selectedIdentity, 'danjiu');
   assert.equal(app.namespace, 'danjiu');
 });
+
+test('recall history in admin follows the selected assistant and keeps empty/error explanations', async () => {
+  const { app } = panel();
+  await app.init();
+  app.page = 'settings';
+  const paths: string[] = [];
+  app.request = async (path: string) => {
+    paths.push(path);
+    return path.startsWith('/api/gateway/recalls')
+      ? { items: [{ id: app.selectedIdentity, injected: 0, selection: { status: 'error', reason: 'selector_timeout' } }] }
+      : { data: {} };
+  };
+  await app.loadRecallHistory();
+  assert.equal(app.recallHistory[0].id, 'danjiu');
+  assert.match(app.recallReasonLabel(app.recallHistory[0].selection.reason), /超时/);
+  await app.selectIdentity('ningjiao');
+  assert.equal(app.recallHistory[0].id, 'ningjiao');
+  assert.ok(paths.includes('/api/gateway/recalls?identity=ningjiao'));
+  await app.selectCustomSpace('shared');
+  assert.equal(app.recallHistory.length, 0);
+  assert.equal(app.recallHistoryLoading, false);
+});
+
+test('late recall results and failures cannot cross an A-B-A identity switch', async () => {
+  for (const fail of [false, true]) {
+    const { app } = panel();
+    await app.init();
+    let resolve: (value: any) => void = () => {};
+    let reject: (error: Error) => void = () => {};
+    app.request = () => new Promise((ok, bad) => { resolve = ok; reject = bad; });
+    const old = app.loadRecallHistory();
+    app.request = async () => ({ data: {} });
+    await app.selectIdentity('ningjiao');
+    await app.selectIdentity('danjiu');
+    app.recallHistory = [{ id: 'fresh' }];
+    if (fail) reject(new Error('stale error'));
+    else resolve({ items: [{ id: 'stale' }] });
+    await old;
+    assert.equal(app.recallHistory[0].id, 'fresh');
+    assert.equal(app.recallHistoryError, '');
+    assert.equal(app.recallHistoryLoading, false);
+  }
+});
