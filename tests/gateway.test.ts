@@ -83,7 +83,7 @@ test("migrations, native chat recall, namespace isolation, original text and Que
   assert.equal(calls[0].url, "https://upstream.test/ai/v1/chat/completions");
   assert.equal(calls[0].headers.authorization, "Bearer cf-token");
   assert.match(calls[0].query.messages[0].content, /喜欢 Cloudflare/);
-  assert.match(calls[0].query.messages[0].content, /- \[precious\] 喜欢 Cloudflare/);
+  assert.match(calls[0].query.messages[0].content, /- 喜欢 Cloudflare/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /番茄炒蛋/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /other identity/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /\[\{"kind"/);
@@ -97,6 +97,15 @@ test("migrations, native chat recall, namespace isolation, original text and Que
   await run("/v1/chat/completions", continuation);
   assert.deepEqual(calls[1].query.messages, continuation.messages);
   assert.equal(queue[1].kind, "tool"); assert.equal(queue[1].userText, "");
+});
+test("transport metadata stays on the wire but not in memory storage", async () => {
+  const envelope = '<message from="9fc3ec3b7f584cdfbfe84f72300e8f08" msg_id="7812076508172213971">迁企微、宁皎搬好了</message>';
+  await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: envelope }] });
+  assert.equal(calls[0].query.messages[0].content, envelope);
+  assert.equal(queue[0].userText, "迁企微、宁皎搬好了");
+  await persistExchange(env, queue[0]);
+  const stored = sqlite.prepare("SELECT content FROM messages WHERE role = 'user'").get() as { content: string };
+  assert.equal(stored.content, "迁企微、宁皎搬好了");
 });
 test("Anthropic tool_result is not human; client beta, signatures, tools and cache survive", async () => {
   const body = { model: "partner", max_tokens: 1000, tools: [{ name: "t", input_schema: { type: "object" } }],
@@ -215,7 +224,7 @@ test("main-model whitelist gates recall and recording; other models pass through
     run("/v1/chat/completions", { model, messages: [{ role: "user", content: text }] });
   await ask("partner");
   assert.equal(calls[0].query.model, "partner");
-  assert.match(JSON.stringify(calls[0].query.messages), /\[precious\] 喜欢 Cloudflare/);
+  assert.match(JSON.stringify(calls[0].query.messages), /- 喜欢 Cloudflare/);
   // Basename match: a glob pattern sees the model name with or without its author prefix.
   const opus = await ask("anthropic/claude-opus-4-6");
   assert.equal(opus.response.headers.get("x-aelios-memory"), "injected");
@@ -406,7 +415,7 @@ test("please-remember writes the original words into long-term memory", async ()
     ]
   });
   assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
-  assert.match(JSON.stringify(calls[1].query.messages), /\[quote\].*芝麻开门|\[authored\].*芝麻开门/);
+  assert.match(JSON.stringify(calls[1].query.messages), /- 调试暗号是芝麻开门/);
 });
 
 test("CF chat rides compat with the gateway id in the URL; custom upstreams stay bearer-only", async () => {
@@ -540,7 +549,7 @@ test("cross-space recall shares one budget, deduplicates and records provenance 
   assert.match(prompt, /Cloudflare shared memory/);
   assert.doesNotMatch(prompt, /private memory|not in read list/);
   assert.equal((prompt.match(/Cloudflare duplicate/g) || []).length, 1);
-  assert.equal((prompt.match(/- \[precious\]/g) || []).length, 3);
+  assert.equal((prompt.match(/^-/gm) || []).length, 3);
   assert.equal(queue[0].namespace, "new");
   await persistExchange(env, queue[0]);
   assert.deepEqual(sqlite.prepare("SELECT DISTINCT namespace FROM messages").all().map(r => r.namespace), ["new"]);

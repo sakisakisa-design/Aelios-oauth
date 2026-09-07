@@ -1,4 +1,5 @@
 import { tokenizeForIndex } from "./queryShape";
+import { cleanMessageText } from "../utils/sanitize";
 
 const FTS_WRITE_ATTEMPTS = 3;
 
@@ -57,7 +58,7 @@ export async function upsertMessageFts(
   db: D1Database,
   input: { namespace: string; messageId: string; content: string }
 ): Promise<boolean> {
-  const body = toFtsBody(input.content);
+  const body = toFtsBody(cleanMessageText(input.content));
   if (!body) return false;
   try {
     await withRetry(async () => {

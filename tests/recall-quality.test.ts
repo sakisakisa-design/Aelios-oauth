@@ -30,6 +30,7 @@ import {
 } from "../src/memory/candidateJudge";
 import { recentHumanTexts } from "../src/gateway/protocol";
 import type { MemoryCandidateRow } from "../src/db/v2/candidates";
+import { cleanMessageText } from "../src/utils/sanitize";
 
 test("topical questions do not mix the previous turn into lexical tokens", () => {
   const shaped = shapeRecallQuery({
@@ -76,10 +77,41 @@ test("surface is markdown, not a JSON blob", () => {
     { kind: "precious", content: "喜欢 Cloudflare" },
     { kind: "project", content: "你正在做记忆网关" }
   ]);
-  assert.match(text, /\[Aelios memory reference/);
-  assert.match(text, /- \[precious\] 喜欢 Cloudflare/);
-  assert.match(text, /- \[project\] 你正在做记忆网关/);
+  assert.match(text, /\[Aelios 记忆/);
+  assert.match(text, /- 喜欢 Cloudflare/);
+  assert.match(text, /- 你正在做记忆网关/);
+  assert.doesNotMatch(text, /\[(?:precious|project)\]/);
   assert.doesNotMatch(text, /\[\{"kind"/);
+});
+
+test("transport envelopes are removed without eating ordinary prose", () => {
+  const hash = "9fc3ec3b7f584cdfbfe84f72300e8f08";
+  const id = "7812076508172213971";
+  assert.equal(
+    cleanMessageText(`<message from="${hash}" msg_id="${id}">迁企微、宁皎搬好了</message>`),
+    "迁企微、宁皎搬好了"
+  );
+  assert.equal(
+    cleanMessageText(`<message from="${hash}" msg_id="1">迁企微</message>\n<message from="${hash}" msg_id="2">宁皎搬好了</message>`),
+    "迁企微\n宁皎搬好了"
+  );
+  assert.equal(cleanMessageText(`from=${hash} msg_id=${id}\n迁企微、宁皎搬好了`), "迁企微、宁皎搬好了");
+  assert.equal(cleanMessageText("文档里可以写 <message>正文</message>"), "文档里可以写 <message>正文</message>");
+});
+
+test("automatic surfaces hide ids and message envelopes", () => {
+  const surface = assembleRecallSurface([
+    {
+      kind: "quote",
+      id: "msg_7812076508172213971",
+      sourceIds: ["msg_1", "msg_2"],
+      content: '<message from="9fc3ec3b" msg_id="7812076508172213971">迁企微、宁皎搬好了</message>'
+    }
+  ]);
+  assert.equal(surface.entries[0].id, "msg_7812076508172213971");
+  assert.deepEqual(surface.entries[0].sourceIds, ["msg_1", "msg_2"]);
+  assert.match(surface.text, /- 迁企微、宁皎搬好了/);
+  assert.doesNotMatch(surface.text, /9fc3ec3b|7812076508172213971|msg_1|\[quote\]/);
 });
 
 test("RRF keeps a lexical hit that the vector channel missed", () => {
@@ -288,6 +320,33 @@ test("raw utterances are searchable before they become facts", async () => {
   const hits = await searchQuotes(db as any, { namespace: "ns", query: "调试暗号是什么？" });
   assert.ok(hits.some((hit) => hit.content.includes("芝麻开门")));
   assert.match(formatQuote(hits[0]), /2026-09-06 用户: 「请记住调试暗号是芝麻开门」/);
+  sqlite.close();
+});
+
+test("adjacent quote hits from one conversation consume one recall slot", async () => {
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec(`CREATE TABLE messages (
+    id TEXT PRIMARY KEY, conversation_id TEXT, namespace TEXT, role TEXT, content TEXT,
+    source TEXT, created_at TEXT, seq INTEGER NOT NULL DEFAULT 0
+  )`);
+  sqlite.prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+    "msg_move", "conversation_one", "ns", "user",
+    '<message from="9fc3ec3b" msg_id="7812076508172213971">我准备迁企微</message>',
+    "gw", "2026-09-06T12:00:00.000Z", 0
+  );
+  sqlite.prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+    "msg_done", "conversation_one", "ns", "assistant",
+    "宁皎已经搬好了", "gw", "2026-09-06T12:00:20.000Z", 1
+  );
+  const hits = await searchQuotes(wrapSqlite(sqlite) as any, {
+    namespace: "ns",
+    query: "迁企微 宁皎搬好",
+    limit: 2
+  });
+  assert.equal(hits.length, 1);
+  assert.deepEqual(hits[0].source_ids, ["msg_move", "msg_done"]);
+  assert.match(formatQuote(hits[0], { compact: true }), /迁企微.*宁皎.*搬好/);
+  assert.doesNotMatch(hits[0].content, /from=|msg_id=|7812076508172213971/);
   sqlite.close();
 });
 

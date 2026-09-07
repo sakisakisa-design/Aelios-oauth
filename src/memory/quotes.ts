@@ -2,8 +2,10 @@ import { getMessagesByIds } from "../db/messages";
 import type { MessageRecord } from "../types";
 import { searchFtsIds } from "./fts";
 import { isPreciousRelevant, lexicalOverlapScore, tokenizeForIndex } from "./queryShape";
+import { cleanMessageText } from "../utils/sanitize";
 
-export const QUOTE_EXCERPT_CHARS = 280;
+export const QUOTE_EXCERPT_CHARS = 180;
+const QUOTE_EVENT_WINDOW_MS = 90_000;
 
 export interface QuoteHit {
   id: string;
@@ -12,6 +14,8 @@ export interface QuoteHit {
   excerpt: string;
   created_at: string;
   conversation_id: string;
+  seq?: number;
+  source_ids?: string[];
   score: number;
 }
 
@@ -51,14 +55,17 @@ export function excerptAroundMatch(
 }
 
 function toQuoteHit(row: MessageRecord, tokens: string[]): QuoteHit {
+  const content = cleanMessageText(row.content);
   return {
     id: row.id,
     role: row.role,
-    content: row.content,
-    excerpt: excerptAroundMatch(row.content, tokens),
+    content,
+    excerpt: excerptAroundMatch(content, tokens),
     created_at: row.created_at,
     conversation_id: row.conversation_id,
-    score: lexicalOverlapScore(row.content, tokens)
+    seq: row.seq,
+    source_ids: [row.id],
+    score: lexicalOverlapScore(content, tokens)
   };
 }
 
@@ -72,7 +79,7 @@ async function searchQuotesLike(
   const binds: unknown[] = [input.namespace, ...tokens.map((token) => `%${escapeLike(token)}%`)];
   const result = await db
     .prepare(
-      `SELECT id, conversation_id, namespace, role, content, source, created_at
+      `SELECT id, conversation_id, namespace, role, content, source, created_at, seq
        FROM messages
        WHERE namespace = ? AND role IN ('user', 'assistant') AND (${clauses.join(" OR ")})
        ORDER BY created_at DESC
@@ -139,31 +146,86 @@ export async function searchQuotes(
 
 }
 
+function compactKey(text: string): string {
+  return cleanMessageText(text).toLowerCase().replace(/\s+/g, "").replace(/[，,。.!！?？；;：:“”"'`、]/g, "");
+}
+
+function sameConversationEvent(a: QuoteHit, b: QuoteHit): boolean {
+  if (a.conversation_id !== b.conversation_id) return false;
+  const delta = Math.abs(Date.parse(a.created_at) - Date.parse(b.created_at));
+  if (!Number.isFinite(delta) || delta > QUOTE_EVENT_WINDOW_MS) return false;
+  if (a.seq === undefined || b.seq === undefined) return delta === 0;
+  return Math.abs(a.seq - b.seq) <= 1 || delta === 0;
+}
+
+function mergeQuoteEvent(primary: QuoteHit, related: QuoteHit[]): QuoteHit {
+  const event = [primary, ...related];
+  const chronological = [...event].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at) || (a.seq ?? 0) - (b.seq ?? 0)
+  );
+  const unique: QuoteHit[] = [];
+  for (const hit of [...event].sort((a, b) => b.score - a.score)) {
+    const key = compactKey(hit.excerpt || hit.content);
+    if (!key || unique.some(other => {
+      const seen = compactKey(other.excerpt || other.content);
+      return seen === key || seen.includes(key) || key.includes(seen);
+    })) continue;
+    unique.push(hit);
+    if (unique.length >= 2) break;
+  }
+  unique.sort((a, b) => a.created_at.localeCompare(b.created_at) || (a.seq ?? 0) - (b.seq ?? 0));
+  const excerpt = unique.map(hit => hit.excerpt || hit.content).join("；");
+  const merged = excerptAroundMatch(excerpt, [], QUOTE_EXCERPT_CHARS);
+  return {
+    ...primary,
+    role: unique.length > 1 ? "conversation" : primary.role,
+    content: unique.map(hit => hit.content).join("\n"),
+    excerpt: merged,
+    source_ids: [...new Set(chronological.flatMap(hit => hit.source_ids ?? [hit.id]))]
+  };
+}
+
 function clusterQuotes(hits: QuoteHit[], limit: number): QuoteHit[] {
   const kept: QuoteHit[] = [];
-  for (const hit of hits.sort((a, b) => b.score - a.score || b.created_at.localeCompare(a.created_at))) {
+  const pending = hits.sort((a, b) => b.score - a.score || b.created_at.localeCompare(a.created_at));
+  while (pending.length) {
+    const hit = pending.shift()!;
+    // Grow a connected event, not just direct neighbours of the best-scoring
+    // sentence. Three consecutive turns should still consume one slot even if
+    // the first and third are more than one seq apart.
+    const related: QuoteHit[] = [];
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (let i = pending.length - 1; i >= 0; i -= 1) {
+        const candidate = pending[i];
+        if (![hit, ...related].some(member => sameConversationEvent(member, candidate))) continue;
+        related.push(candidate);
+        pending.splice(i, 1);
+        expanded = true;
+      }
+    }
     const duplicate = kept.some((other) =>
-      other.conversation_id === hit.conversation_id
-      && (other.excerpt.includes(hit.excerpt) || hit.excerpt.includes(other.excerpt)
-        || other.content.includes(hit.content) || hit.content.includes(other.content))
+      compactKey(other.excerpt).includes(compactKey(hit.excerpt)) || compactKey(hit.excerpt).includes(compactKey(other.excerpt))
     );
     if (duplicate) continue;
-    kept.push(hit);
+    kept.push(mergeQuoteEvent(hit, related));
     if (kept.length >= limit) break;
   }
   return kept;
 }
 
-export function formatQuote(hit: QuoteHit): string {
+export function formatQuote(hit: QuoteHit, options: { compact?: boolean } = {}): string {
+  const quote = cleanMessageText(hit.excerpt || excerptAroundMatch(hit.content, [])).replace(/\s+/g, " ").trim();
+  if (options.compact) return quote;
   const day = hit.created_at.slice(0, 10);
-  const speaker = hit.role === "assistant" ? "助手" : "用户";
-  const quote = (hit.excerpt || excerptAroundMatch(hit.content, [])).replace(/\s+/g, " ").trim();
+  const speaker = hit.role === "assistant" ? "助手" : hit.role === "conversation" ? "对话" : "用户";
   return `${day} ${speaker}: 「${quote}」`;
 }
 
 export function quoteOverlaps(text: string, quote: string): boolean {
-  const a = text.replace(/\s+/g, "");
-  const b = quote.replace(/\s+/g, "");
+  const a = compactKey(text);
+  const b = compactKey(quote);
   if (!a || !b) return false;
   return a.includes(b) || b.includes(a);
 }

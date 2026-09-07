@@ -79,9 +79,10 @@ export async function recallPatch(
 
     const quoteEntries = quotes.map((hit) => ({
       kind: "quote",
-      content: formatQuote(hit),
+      content: formatQuote(hit, { compact: !evidence }),
       id: hit.id,
-      excerpt: hit.excerpt
+      excerpt: hit.excerpt,
+      sourceIds: hit.source_ids
     }));
     const droppedAsQuoteDup = recall.hits.filter((hit) =>
       quotes.some((quote) => quoteOverlaps(hit.content, quote.excerpt || quote.content))
@@ -159,6 +160,7 @@ export async function recallPatch(
     },
     items: assembled.entries.map((entry) => ({
       id: entry.id ?? null,
+      source_ids: entry.sourceIds,
       namespace: entry.namespace,
       kind: entry.kind,
       reason: entry.kind === "quote"

@@ -52,13 +52,13 @@ function getMaxCandidates(env: Env): number {
 }
 
 function getMaxOutput(env: Env): number {
-  const value = Number(env.MEMORY_FILTER_MAX_OUTPUT ?? 3);
-  return Number.isFinite(value) ? clamp(Math.floor(value), 0, 20) : 3;
+  const value = Number(env.MEMORY_FILTER_MAX_OUTPUT ?? 2);
+  return Number.isFinite(value) ? clamp(Math.floor(value), 0, 20) : 2;
 }
 
 function getMaxContentChars(env: Env): number {
-  const value = Number(env.MEMORY_FILTER_MAX_CONTENT_CHARS || 700);
-  return Number.isFinite(value) ? clamp(Math.floor(value), 120, 3000) : 700;
+  const value = Number(env.MEMORY_FILTER_MAX_CONTENT_CHARS || 240);
+  return Number.isFinite(value) ? clamp(Math.floor(value), 80, 3000) : 240;
 }
 
 export function recallInjectionBudget(env: Env): { maxItems: number; maxChars: number } {

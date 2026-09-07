@@ -18,6 +18,7 @@ import { callModelWithRetry, readModelName } from "../utils/modelCall";
 import type { Env, MessageRecord } from "../types";
 import { extractJsonObject } from "../utils/parse";
 import { createVectorMemory } from "./vectorStore";
+import { cleanMessageText } from "../utils/sanitize";
 
 // listMemoryCandidates 本身按 confidence ASC 排序，正好是"先看最没把握的"，直接复用，
 // 不用再为 judge 单独建一个查询。
@@ -137,7 +138,7 @@ function formatTranscript(messages: MessageRecord[]): string {
   return messages
     .map((message) => {
       const role = message.role === "assistant" ? "我(助手)" : "用户";
-      return `[${message.id}][${message.created_at}][${role}] ${message.content.trim().slice(0, 900)}`;
+      return `[${message.id}][${message.created_at}][${role}] ${cleanMessageText(message.content).slice(0, 900)}`;
     })
     .join("\n\n");
 }
