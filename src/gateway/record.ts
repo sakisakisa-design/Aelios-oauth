@@ -182,7 +182,8 @@ export class OutputCollector {
   private appendTool(name: string, input: unknown): void {
     const line = formatToolCall(name, input);
     if (!line) return;
-    this.append(this.text && !this.text.endsWith("\n") ? "\n" + line : line);
+    if (this.text && !this.text.endsWith("\n")) this.append("\n");
+    this.append(line + "\n");
   }
   private notePending(index: number, name: string, json = ""): void {
     const existing = this.pending.get(index) || { name: "", json: "" };
