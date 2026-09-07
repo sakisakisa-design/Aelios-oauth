@@ -98,9 +98,12 @@ claude
 Codex 的登录态不是 API key，也不是一张能放一年的 token。`codex login` 之后写在 `~/.codex/auth.json`：`access_token` 几小时过期，要靠 `refresh_token` 续。上游是 `https://chatgpt.com/backend-api/codex/responses`，**不是** `api.openai.com`，也不是 AI Gateway。
 
 1. 本机（或 omp）跑一次 `codex login`。
-2. Worker Secret 任选一种，**不要把整份 auth.json 发到聊天里**：
-   - `CODEX_AUTH_JSON`：`jq -c . ~/.codex/auth.json` 的结果，用 `wrangler secret put`
-   - 或只放 `CODEX_REFRESH_TOKEN`（和可选的 `CODEX_ACCOUNT_ID`）
+2. Worker Secret 只放 `CODEX_REFRESH_TOKEN`。几小时过期的 `access_token` 不要塞进 Secret，Worker 每次用 refresh 换成短期票并缓存在 D1：
+
+```bash
+jq -r .tokens.refresh_token ~/.codex/auth.json | npx wrangler secret put CODEX_REFRESH_TOKEN
+```
+
 3. 客户端 key 仍是 `CHATBOX_API_KEY`。`~/.codex/config.toml`：
 
 ```toml
@@ -117,7 +120,7 @@ export AELIOS_API_KEY="<CHATBOX_API_KEY>"
 
 助手主模型写成 Codex 会发的名字（`gpt-5.4`、`*gpt*`），不要强迫 `openai/` 前缀。带前缀的仍走 AI Gateway。
 
-Worker 会自己 refresh；续上的 token 缓存在 D1。refresh 失效就重新 `codex login` 再 put 一次 secret。
+Worker 会自己 refresh。refresh 失效就重新 `codex login` 再 put 一次。不要把整份 `auth.json` 发到聊天里。
 
 想让 Claude Code 每条消息自动召回、批量写回，主仓仍用 Hook：[`integrations/claude-code/`](./integrations/claude-code/README.md)。本 fork 用 base URL 就不需要 hook。
 

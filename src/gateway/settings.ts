@@ -49,8 +49,7 @@ export const SECRET_SPECS: { name: string; label: string }[] = [
   { name: "GUIDE_DOG_API_KEY", label: "导盲犬密钥" },
   { name: "CLOUDFLARE_API_TOKEN", label: "CF 令牌（网关上游就靠它，一把管所有）" },
   { name: "CLAUDE_OAUTH_TOKEN", label: "Claude 订阅 OAuth（setup-token；有它时无前缀 messages 直打 Anthropic，不进 AI Gateway）" },
-  { name: "CODEX_AUTH_JSON", label: "Codex 订阅 OAuth（~/.codex/auth.json；无前缀 responses 直打 chatgpt.com，不进 AI Gateway）" },
-  { name: "CODEX_REFRESH_TOKEN", label: "Codex refresh_token（没有整份 auth.json 时用）" },
+  { name: "CODEX_REFRESH_TOKEN", label: "Codex refresh_token（codex login 后 ~/.codex/auth.json 里那条；Worker 自己换成短期票，不进 AI Gateway）" },
   { name: "GITHUB_DAILY_TOKEN", label: "GitHub 日档只读 PAT" }
 ];
 

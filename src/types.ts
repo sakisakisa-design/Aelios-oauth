@@ -12,10 +12,9 @@ export interface Env {
   CLAUDE_OAUTH_TOKEN?: string;
   /** "false" disables the Claude Code system-prefix injection on the OAuth path. */
   CLOAK?: string;
-  /** Whole ~/.codex/auth.json or its tokens object, after `codex login`. */
+  /** Whole ~/.codex/auth.json is accepted, but only refresh_token is used. */
   CODEX_AUTH_JSON?: string;
   CODEX_REFRESH_TOKEN?: string;
-  CODEX_ACCESS_TOKEN?: string;
   CODEX_ACCOUNT_ID?: string;
   PUBLIC_MODEL_NAME?: string;
   CHAT_MODEL?: string;

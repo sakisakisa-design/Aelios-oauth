@@ -21,6 +21,10 @@ function config(identities = [identity()]) {
   return { version: 3, upstream: { address: "https://upstream.test/ai/v1" }, identities };
 }
 function setConfig(c: any) { env.GATEWAY_CONFIG = JSON.stringify(c); }
+function fakeJwt(payload: Record<string, unknown>): string {
+  const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${b64({ alg: "none" })}.${b64(payload)}.sig`;
+}
 beforeEach(() => {
   sqlite?.close(); sqlite = new DatabaseSync(":memory:");
   for (const file of readdirSync("migrations").filter(f => f.endsWith(".sql")).sort()) {
@@ -49,6 +53,17 @@ beforeEach(() => {
     MEMORY_QUEUE: { async send(e: any) { queue.push(e); } } };
   resetCodexOauthMemory();
   globalThis.fetch = async (url: any, init: any) => {
+    if (String(url).includes("auth.openai.com/oauth/token")) {
+      const query = JSON.parse(init?.body as string);
+      calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers)), query });
+      return Response.json({
+        access_token: fakeJwt({
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          "https://api.openai.com/auth": { chatgpt_account_id: "acct_test" }
+        }),
+        refresh_token: query.refresh_token
+      });
+    }
     if (String(url).endsWith("/models")) {
       calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers)), query: null });
       return Response.json({ object: "list", data: [{ id: "anthropic/claude-opus-4-5", object: "model" }] });
@@ -640,16 +655,7 @@ test("Claude OAuth count_tokens passthrough does not inject memory", async () =>
   assert.match(calls[0].query.system, /You are Claude Code/);
 });
 
-function fakeJwt(payload: Record<string, unknown>): string {
-  const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  return `${b64({ alg: "none" })}.${b64(payload)}.sig`;
-}
-
 test("Codex OAuth prefixless responses go to chatgpt.com, never AI Gateway", async () => {
-  env.CODEX_ACCESS_TOKEN = fakeJwt({
-    exp: Math.floor(Date.now() / 1000) + 3600,
-    "https://api.openai.com/auth": { chatgpt_account_id: "acct_test" }
-  });
   env.CODEX_REFRESH_TOKEN = "rt-test";
   precious("partner-a", "喜欢 Cloudflare");
   setConfig({
@@ -661,20 +667,21 @@ test("Codex OAuth prefixless responses go to chatgpt.com, never AI Gateway", asy
   assert.equal(response.status, 200, text);
   assert.equal(response.headers.get("x-aelios-memory"), "injected");
   assert.equal(response.headers.get("x-aelios-provider"), "chatgpt");
-  assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/responses");
-  assert.doesNotMatch(calls[0].url, /gateway\.ai\.cloudflare|api\.openai\.com/);
-  assert.match(calls[0].headers.authorization, /^Bearer ey/);
-  assert.equal(calls[0].headers["chatgpt-account-id"], "acct_test");
-  assert.equal(calls[0].headers.originator, "codex_cli_rs");
-  assert.equal(calls[0].headers["cf-aig-authorization"], undefined);
-  assert.equal(calls[0].query.model, "gpt-5.4");
-  assert.equal(calls[0].query.store, false);
-  assert.match(JSON.stringify(calls[0].query.input), /喜欢 Cloudflare/);
+  const refresh = calls.find((call) => String(call.url).includes("auth.openai.com/oauth/token"));
+  const upstream = calls.find((call) => String(call.url).includes("chatgpt.com/backend-api/codex/responses"));
+  assert.equal(refresh?.query.refresh_token, "rt-test");
+  assert.ok(upstream);
+  assert.doesNotMatch(upstream.url, /gateway\.ai\.cloudflare|api\.openai\.com\/v1/);
+  assert.match(upstream.headers.authorization, /^Bearer ey/);
+  assert.equal(upstream.headers["chatgpt-account-id"], "acct_test");
+  assert.equal(upstream.headers.originator, "codex_cli_rs");
+  assert.equal(upstream.headers["cf-aig-authorization"], undefined);
+  assert.equal(upstream.query.model, "gpt-5.4");
+  assert.equal(upstream.query.store, false);
+  assert.match(JSON.stringify(upstream.query.input), /喜欢 Cloudflare/);
 });
 
 test("Codex OAuth allows server state and does not steal prefixed BYOK", async () => {
-  env.CODEX_ACCESS_TOKEN = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
-  env.CODEX_ACCOUNT_ID = "acct_test";
   env.CODEX_REFRESH_TOKEN = "rt-test";
   setConfig({
     ...config(),
@@ -687,11 +694,12 @@ test("Codex OAuth allows server state and does not steal prefixed BYOK", async (
     previous_response_id: "resp_previous"
   });
   assert.equal(stateful.response.status, 200);
-  assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/responses");
+  assert.ok(calls.some((call) => call.url === "https://chatgpt.com/backend-api/codex/responses"));
 
   await run("/v1/responses", { model: "openai/gpt-5.4", input: "Hi" });
-  assert.equal(calls[1].url, `https://gateway.ai.cloudflare.com/v1/${"b".repeat(32)}/default/openai/responses`);
-  assert.equal(calls[1].headers["cf-aig-authorization"], "Bearer cf-token");
+  const byok = calls.find((call) => String(call.url).includes("gateway.ai.cloudflare.com"));
+  assert.equal(byok?.url, `https://gateway.ai.cloudflare.com/v1/${"b".repeat(32)}/default/openai/responses`);
+  assert.equal(byok?.headers["cf-aig-authorization"], "Bearer cf-token");
 });
 
 test("settings edited in the admin page override deployment vars everywhere", async () => {

@@ -30,7 +30,6 @@ function parseAuthJson(raw: string): Partial<CodexCredentials> {
     ? data.tokens as Record<string, unknown>
     : data) as Record<string, unknown>;
   return {
-    accessToken: typeof tokens.access_token === "string" ? tokens.access_token : "",
     refreshToken: typeof tokens.refresh_token === "string" ? tokens.refresh_token : "",
     accountId: typeof tokens.account_id === "string" ? tokens.account_id
       : typeof data.account_id === "string" ? data.account_id : ""
@@ -71,10 +70,7 @@ function stillFresh(exp: number): boolean {
 }
 
 export function hasCodexOauth(env: Env): boolean {
-  if (secret(env, "CODEX_REFRESH_TOKEN")) return true;
-  if (secret(env, "CODEX_ACCESS_TOKEN")) return true;
-  const parsed = parseAuthJson(secret(env, "CODEX_AUTH_JSON"));
-  return Boolean(parsed.refreshToken || parsed.accessToken);
+  return Boolean(seedFromSecrets(env).refreshToken);
 }
 
 /** Prefixless /v1/responses with ChatGPT OAuth: Codex, not CF BYOK. */
@@ -85,7 +81,6 @@ export function wantsCodexOauth(env: Env, protocol: Protocol, model: string): bo
 function seedFromSecrets(env: Env): Partial<CodexCredentials> {
   const fromJson = parseAuthJson(secret(env, "CODEX_AUTH_JSON"));
   return {
-    accessToken: secret(env, "CODEX_ACCESS_TOKEN") || fromJson.accessToken || "",
     refreshToken: secret(env, "CODEX_REFRESH_TOKEN") || fromJson.refreshToken || "",
     accountId: secret(env, "CODEX_ACCOUNT_ID") || fromJson.accountId || ""
   };
@@ -163,23 +158,9 @@ export async function getCodexCredentials(env: Env, forceRefresh = false): Promi
   }
 
   const current = memory;
-  const access = (!forceRefresh && seed.accessToken && stillFresh(jwtExp(seed.accessToken)))
-    ? seed.accessToken
-    : "";
-  if (access) {
-    const row: CacheRow = {
-      accessToken: access,
-      refreshToken: current?.refreshToken || seed.refreshToken || "",
-      accountId: seed.accountId || accountFromJwt(access) || current?.accountId || "",
-      exp: jwtExp(access)
-    };
-    memory = row;
-    return row;
-  }
-
   const refreshToken = current?.refreshToken || seed.refreshToken;
   if (!refreshToken) {
-    throw new Error("Missing Codex OAuth: set CODEX_REFRESH_TOKEN or CODEX_AUTH_JSON (from ~/.codex/auth.json after `codex login`)");
+    throw new Error("Missing Codex OAuth: set CODEX_REFRESH_TOKEN (jq -r .tokens.refresh_token ~/.codex/auth.json after `codex login`)");
   }
   const next = await refresh(refreshToken);
   const row: CacheRow = {

@@ -37,7 +37,7 @@ Aelios 负责身份、临时召回和自动记录，客户端 Harness 负责工�
 空配置的模型列表为空，聊天请求返回配置提示。
 `GET /v1/models` 透传上游模型目录：CF 账号走 AI Gateway 的 compat 目录（`gateway.ai.cloudflare.com/v1/{账号}/{网关}/compat/models`，REST 无 GET /models），自定义地址走 `{base}/models`；上游答不上或无 CF token 时回落为主模型白名单提示。
 
-聊天协议路由:chat 走 `…/{网关}/compat/chat/completions`(全 provider,BYOK);带 `provider/` 前缀的 messages / responses 走各 provider 原生端点。本 fork：`CLAUDE_OAUTH_TOKEN` 存在时，无前缀 `/v1/messages` 直打 `api.anthropic.com`；`CODEX_AUTH_JSON` / `CODEX_REFRESH_TOKEN` 存在时，无前缀 `/v1/responses` 直打 `chatgpt.com/backend-api/codex`。两路都不进 AI Gateway。无 token 的无前缀模型名仍 400。
+聊天协议路由:chat 走 `…/{网关}/compat/chat/completions`(全 provider,BYOK);带 `provider/` 前缀的 messages / responses 走各 provider 原生端点。本 fork：`CLAUDE_OAUTH_TOKEN` 存在时，无前缀 `/v1/messages` 直打 `api.anthropic.com`；`CODEX_REFRESH_TOKEN` 存在时，无前缀 `/v1/responses` 直打 `chatgpt.com/backend-api/codex`。两路都不进 AI Gateway。无 token 的无前缀模型名仍 400。
 管理配置允许 `CHATBOX_API_KEY` / `DEBUG_API_KEY`。旧 MCP 与记忆管理权限不变。
 
 ## 首次配置

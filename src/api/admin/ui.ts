@@ -973,7 +973,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
           </div>
           <label class="mt-3 block text-xs text-zinc-400">上游地址</label>
           <input x-model="gwAddress" class="mt-2 h-11 w-full rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-3 text-sm text-zinc-100 outline-none transition duration-150 ease-in-out focus:border-coral" placeholder="CF 账号 ID(32 位),或完整地址,如 new-api 的 https://…/v1">
-          <p class="mt-1 text-[11px] leading-5 text-zinc-500">chat 走 compat;带 provider/ 前缀的 messages / responses 走 AI Gateway。CLAUDE_OAUTH_TOKEN：无前缀 /v1/messages 直打 Anthropic。CODEX_AUTH_JSON：无前缀 /v1/responses 直打 chatgpt.com。都不进 AI Gateway。</p>
+          <p class="mt-1 text-[11px] leading-5 text-zinc-500">chat 走 compat;带 provider/ 前缀的 messages / responses 走 AI Gateway。CLAUDE_OAUTH_TOKEN：无前缀 /v1/messages 直打 Anthropic。CODEX_REFRESH_TOKEN：无前缀 /v1/responses 直打 chatgpt.com。都不进 AI Gateway。</p>
           <div class="mt-4 flex items-center justify-between">
             <label class="text-xs text-zinc-400">助手</label>
             <button type="button" @click="gwAdd()" class="tap rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 transition duration-150 ease-in-out hover:border-coral hover:text-zinc-100">+ 添加助手</button>
