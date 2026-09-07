@@ -92,6 +92,16 @@ export function sanitizeCacheControl(body: Body, protocol: Protocol): void {
   const last = lastCacheableBlock(body, true);
   if (object(last) && !last.cache_control) last.cache_control = cc;
 }
+// Vertex-backed lines reject cache_control on tool definitions
+// (INVALID_ARGUMENT unrecognizedProperty=cache_control); system/user markers are fine.
+// The gateway learns this per upstream and strips only tool breakpoints there.
+export function stripToolCacheControl(body: Body): boolean {
+  let stripped = false;
+  for (const tool of body.tools ?? []) {
+    if (object(tool) && tool.cache_control !== undefined) { delete tool.cache_control; stripped = true; }
+  }
+  return stripped;
+}
 // Encrypted reasoning stays allowed; only server-owned history breaks request-only memory.
 export function hasServerState(body: Body, protocol: Protocol): boolean {
   return protocol === "responses" && !!(body.previous_response_id || body.conversation ||

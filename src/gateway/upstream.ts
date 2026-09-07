@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { isMainModel, PATHS, type GatewayConfig, type Identity, type Protocol } from "./config";
-import { applyThinkingPolicy, sanitizeCacheControl, type Body } from "./protocol";
+import { applyThinkingPolicy, sanitizeCacheControl, stripToolCacheControl, type Body } from "./protocol";
 import { normalizeRequest, validateRequest } from "./request";
 
 const ACCOUNT_RE = /^[a-f0-9]{32}$/i;
@@ -113,8 +113,9 @@ export function routeFor(resolved: ResolvedUpstream, protocol: Protocol, model: 
 
 // One call, one upstream. Model names pass through as written (minus the provider
 // prefix on native endpoints); retries and fallback are AI Gateway's own job.
+export interface PreparedRequest { route: UpstreamRoute; headers: Headers; body: Body; removed: string[] }
 export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity: Identity,
-  protocol: Protocol, original: Request, body: Body) {
+  protocol: Protocol, original: Request, body: Body): PreparedRequest {
   const token = env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Missing Worker secret CLOUDFLARE_API_TOKEN");
   const route = routeFor(resolveUpstream(env, config), protocol, body.model);
@@ -138,12 +139,25 @@ export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity:
   validateRequest(out, protocol, headers);
   return { route, headers, body: out, removed: normalized.removed };
 }
+// Isolate-scope learned capability: Vertex-backed providers answer 400
+// "unrecognizedProperty=cache_control" to tool breakpoints. One learning 400 per
+// isolate per route; afterwards tool breakpoints are stripped before sending.
+export const toolCacheRejections = new Set<string>();
+
 export async function callGatewayUpstream(protocol: Protocol, original: Request,
-  prepared: ReturnType<typeof prepareGatewayRequest>, body: Body): Promise<Response> {
+  prepared: PreparedRequest, body: Body): Promise<Response> {
   const { route, headers } = prepared;
   // Check the actual wire payload, including the gateway's own modifications.
   validateRequest(body, protocol, headers);
-  return fetch(route.url, {
+  if (toolCacheRejections.has(route.url)) stripToolCacheControl(body);
+  const send = () => fetch(route.url, {
     method: "POST", headers, body: JSON.stringify(body), signal: original.signal, redirect: "manual"
   });
+  const first = await send();
+  if (first.status !== 400) return first;
+  const detail = await first.clone().text().catch(() => "");
+  if (!/unrecognizedProperty=cache_control/.test(detail) || !stripToolCacheControl(body)) return first;
+  toolCacheRejections.add(route.url);
+  console.log("gateway learned upstream rejects tool cache_control", { url: route.url });
+  return send();
 }
