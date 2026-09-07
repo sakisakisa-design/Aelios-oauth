@@ -434,10 +434,13 @@ export async function runRecall(env: Env, input: RecallInput): Promise<RecallRes
   // 严格模式下 (RECALL_REQUIRE_D1_BACKING=true) 已经在 search 层丢弃的孤儿向量命中数。
   const unbackedDropped = searchResult.unbacked_dropped;
 
-  // 2.5. 召回精炼: prepareCandidates + reranker，记忆原文直出
+  // 2.5. Rank with the reranker, but do not apply the auto-injection
+  // 2-item budget here. MCP / REST active recall needs the full k;
+  // the gateway surface trims after this.
   const memories = (await filterAndCompressMemories(env, {
     query,
-    memories: rawMemories
+    memories: rawMemories,
+    maxOutput: k
   })) as MemoryApiRecordWithProvenance[];
 
   // 3. 闸三: last_injected_at 近期注入过的降权 (不动 importance)。

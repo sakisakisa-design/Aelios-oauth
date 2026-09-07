@@ -202,7 +202,7 @@ async function handleSearchMemories(request: Request, env: Env, profile: KeyProf
   const topK = readPositiveInt(body.top_k, Number(env.MEMORY_TOP_K || 50), 50);
   const types = readStringArray(body.types);
   const raw = await searchMemories(env, { namespace, query, topK, types });
-  const shouldFilter = readBoolean(body.filter, true);
+  const shouldFilter = readBoolean(body.filter, false);
   const filterResult = shouldFilter
     ? await filterAndCompressMemoriesWithMeta(env, { query, memories: raw })
     : null;
