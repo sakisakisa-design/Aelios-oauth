@@ -8,6 +8,10 @@ export interface Env {
   VECTORIZE_INDEX_NAME?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_API_TOKEN?: string;
+  /** Claude setup-token. When set, prefixless /v1/messages go to api.anthropic.com, never AI Gateway. */
+  CLAUDE_OAUTH_TOKEN?: string;
+  /** "false" disables the Claude Code system-prefix injection on the OAuth path. */
+  CLOAK?: string;
   PUBLIC_MODEL_NAME?: string;
   CHAT_MODEL?: string;
   DEFAULT_UPSTREAM_MODEL?: string;

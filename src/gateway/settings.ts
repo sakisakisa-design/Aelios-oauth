@@ -48,6 +48,7 @@ export const SECRET_SPECS: { name: string; label: string }[] = [
   { name: "MEMORY_MCP_API_KEY", label: "MCP 密钥" },
   { name: "GUIDE_DOG_API_KEY", label: "导盲犬密钥" },
   { name: "CLOUDFLARE_API_TOKEN", label: "CF 令牌（网关上游就靠它，一把管所有）" },
+  { name: "CLAUDE_OAUTH_TOKEN", label: "Claude 订阅 OAuth（setup-token；有它时无前缀 messages 直打 Anthropic，不进 AI Gateway）" },
   { name: "GITHUB_DAILY_TOKEN", label: "GitHub 日档只读 PAT" }
 ];
 

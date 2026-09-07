@@ -1,3 +1,13 @@
+# Aelios OAuth fork
+
+这是 [Aelios](https://github.com/wusaki0723/Aelios) 的旁路 fork，不是正路。
+
+给 Claude Code 接记忆时走 `claude setup-token` 订阅 OAuth，**直打 `api.anthropic.com`，不进 Cloudflare AI Gateway**。有封号风险。不是人人都需要。愿意用就用，用了后果自负。
+
+正路请回 Aelios 主仓：API / BYOK 走 AI Gateway；Claude Code 要用订阅登录就继续用 hook。
+
+---
+
 # Aelios
 
 给 AI 加一颗长期记忆。换窗口、换客户端、换模型，记忆跟着你走。
@@ -19,7 +29,7 @@ Vectorize 那栏照抄：Dimensions `1024`，Metric `cosine`。构建命令 `npm
 部署完会得到一个地址，类似：
 
 ```
-https://companion-memory-proxy.<你的子域>.workers.dev
+https://aelios-oauth.<你的子域>.workers.dev
 ```
 
 想自己掌控每一步的话：Fork 本仓库 → Cloudflare Workers 连上 GitHub → 构建 `npm ci`、部署 `npm run deploy` → 在 Worker Settings 里加 Secret `CHATBOX_API_KEY`。不要用裸 `wrangler deploy`，那样不会建库。
@@ -65,6 +75,26 @@ API Key 一律填 `CHATBOX_API_KEY`。模型名写成 `厂商/模型`，比如 `
 
 不带助手名的 `/v1` 会走这把钥匙的第一个助手。
 
+### Claude Code + 订阅 OAuth（本 fork）
+
+主仓走 API / AI Gateway。这边把 `CLAUDE_OAUTH_TOKEN` 配上之后，Claude Code 的无前缀 `claude-…` 模型走 `/v1/messages`，记忆仍由 Aelios 注入，上游是 Anthropic 本人，不经过 AI Gateway。带 `anthropic/` 前缀的请求仍走原来的 Gateway 线路。
+
+1. 本机 `claude setup-token`，复制那张一年期 token（只显示一次）。
+2. Worker Secret 加 `CLAUDE_OAUTH_TOKEN`。客户端 key 仍是你自编的 `CHATBOX_API_KEY`。
+3. Claude Code：
+
+```bash
+export ANTHROPIC_BASE_URL="https://<Worker 地址>/coder"
+export ANTHROPIC_API_KEY="<CHATBOX_API_KEY>"
+claude
+```
+
+助手主模型写成 Claude Code 会发的名字（如 `*opus*`、`claude-opus-4-6`），不要强迫 `anthropic/` 前缀。可选 `CLOAK=false` 关掉 Claude Code system 前缀（OAuth 打非 Haiku 通常会失败）。
+
+**不要把这张 OAuth token 填进 AI Gateway BYOK。** 本 fork 的意义就是订阅流量不进 Gateway。
+
+想让 Claude Code 每条消息自动召回、批量写回，主仓仍用 Hook：[`integrations/claude-code/`](./integrations/claude-code/README.md)。本 fork 用 base URL 就不需要 hook。
+
 试一句：「请记住：我的测试暗号是苹果星星-0428。」过一会儿再问：「我的测试暗号是什么？」答出来就通了。
 
 ## 平时怎么管
@@ -109,7 +139,7 @@ API Key 一律填 `CHATBOX_API_KEY`。模型名写成 `厂商/模型`，比如 `
 https://<Worker 地址>/mcp?token=<CHATBOX_API_KEY>
 ```
 
-想让 Claude Code 每条消息自动召回、批量写回，用仓库里的 Hook：[`integrations/claude-code/`](./integrations/claude-code/README.md)。
+本 fork 把 Claude Code 的 `ANTHROPIC_BASE_URL` 指过来即可自动召回，不必再装 Hook。主仓仍用 Hook：[`integrations/claude-code/`](./integrations/claude-code/README.md)。
 
 **看图**
 
@@ -143,7 +173,7 @@ Cloudflare Workers 上的记忆网关。帮用户部署时只关联**用户自�
 
 | 资源 | 值 |
 |---|---|
-| Worker | `companion-memory-proxy` |
+| Worker | `aelios-oauth` |
 | D1 | `companion_memory_proxy` |
 | Vectorize | `memo-kb`（1024 维 cosine） |
 | Queue | `companion-memory` |

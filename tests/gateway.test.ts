@@ -581,6 +581,63 @@ test("any provider gets a native messages/responses route; prefixless models are
   assert.equal(calls.length, 2);
 });
 
+test("Claude OAuth prefixless messages go to Anthropic, never AI Gateway", async () => {
+  env.CLAUDE_OAUTH_TOKEN = "sk-ant-oat01-test-token";
+  precious("partner-a", "喜欢 Cloudflare");
+  setConfig({ ...config(), upstream: { address: "e".repeat(32) } });
+  const { response } = await run("/v1/messages", {
+    model: "claude-opus-5",
+    max_tokens: 16,
+    messages: [{ role: "user", content: "我们喜欢什么？" }]
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-aelios-memory"), "injected");
+  assert.equal(response.headers.get("x-aelios-provider"), "anthropic");
+  assert.equal(calls[0].url, "https://api.anthropic.com/v1/messages");
+  assert.doesNotMatch(calls[0].url, /gateway\.ai\.cloudflare/);
+  assert.equal(calls[0].headers.authorization, "Bearer sk-ant-oat01-test-token");
+  assert.equal(calls[0].headers["cf-aig-authorization"], undefined);
+  assert.equal(calls[0].headers["x-api-key"], undefined);
+  assert.equal(calls[0].query.model, "claude-opus-5");
+  assert.match(calls[0].query.system, /You are Claude Code, Anthropic's official CLI for Claude/);
+  assert.match(JSON.stringify(calls[0].query.messages), /喜欢 Cloudflare/);
+  assert.match(calls[0].headers["anthropic-beta"], /oauth-2025-04-20/);
+  assert.match(calls[0].headers["anthropic-beta"], /claude-code-20250219/);
+});
+
+test("Claude OAuth does not steal prefixed BYOK traffic; cloak is skippable", async () => {
+  env.CLAUDE_OAUTH_TOKEN = "sk-ant-oat01-test-token";
+  setConfig({ ...config(), upstream: { address: "f".repeat(32) } });
+  await run("/v1/messages", { model: "anthropic/claude-opus-5", max_tokens: 16, messages: [{ role: "user", content: "Hi" }] });
+  assert.equal(calls[0].url, `https://gateway.ai.cloudflare.com/v1/${"f".repeat(32)}/default/anthropic/v1/messages`);
+  assert.equal(calls[0].headers["cf-aig-authorization"], "Bearer cf-token");
+  assert.equal(calls[0].headers.authorization, undefined);
+
+  env.CLOAK = "false";
+  await run("/v1/messages", { model: "claude-opus-5", max_tokens: 16, messages: [{ role: "user", content: "Hi" }] });
+  assert.equal(calls[1].url, "https://api.anthropic.com/v1/messages");
+  assert.equal(calls[1].query.system, undefined);
+
+  delete env.CLOUDFLARE_API_TOKEN;
+  const oauthOnly = await run("/v1/messages", { model: "claude-opus-5", max_tokens: 16, messages: [{ role: "user", content: "Hi" }] });
+  assert.equal(oauthOnly.response.status, 200);
+  assert.equal(calls[2].url, "https://api.anthropic.com/v1/messages");
+});
+
+test("Claude OAuth count_tokens passthrough does not inject memory", async () => {
+  env.CLAUDE_OAUTH_TOKEN = "sk-ant-oat01-test-token";
+  precious("partner-a", "喜欢 Cloudflare");
+  const { response } = await run("/v1/messages/count_tokens", {
+    model: "claude-opus-5",
+    messages: [{ role: "user", content: "我们喜欢什么？" }]
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-aelios-memory"), "off");
+  assert.equal(calls[0].url, "https://api.anthropic.com/v1/messages/count_tokens");
+  assert.doesNotMatch(calls[0].url, /gateway\.ai\.cloudflare/);
+  assert.match(calls[0].query.system, /You are Claude Code/);
+});
+
 test("settings edited in the admin page override deployment vars everywhere", async () => {
   const withSettings = { ...config(), settings: { CHAT_MODEL: "chosen-in-admin", MEMORY_FILTER_MAX_OUTPUT: " 5 ", DREAM_TIME_ZONE: "" } };
   assert.equal((await worker.fetch(request("/api/gateway/config", withSettings, {}, "PUT"), env, ctx)).status, 200);

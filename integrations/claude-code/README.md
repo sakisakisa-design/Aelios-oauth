@@ -2,6 +2,8 @@
 
 This integration connects Claude Code to an Aelios memory Worker.
 
+On the OAuth fork, point `ANTHROPIC_BASE_URL` at the Worker instead of installing this hook. The hook remains the mainline Aelios path.
+
 It does two things:
 
 - `UserPromptSubmit`: searches long-term memory and injects relevant context.

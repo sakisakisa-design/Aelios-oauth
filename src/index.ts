@@ -11,6 +11,7 @@ import { handleHealth } from "./api/health";
 import { handleVectorDoctor, handleVectorHealth, handleVectorReindex } from "./api/debug";
 import { handleDreamHarvest, handleDreamRun, handleDreamStatus } from "./api/dream";
 import { handleGateway } from "./gateway/handler";
+import { handleOauthPassthrough, oauthPassthroughEndpoint, oauthToken } from "./gateway/oauth";
 import { handleGatewayAdmin, handleGatewayEnv, gatewayAdminPage } from "./gateway/admin";
 import { identityNamespace, loadConfig, loadSettings, type Protocol } from "./gateway/config";
 import { applySettings } from "./gateway/settings";
@@ -110,6 +111,9 @@ export default {
       const protocol = GATEWAY_ENDPOINTS[route.endpoint];
       if (protocol && request.method === "POST") return handleGateway(request, env, ctx, protocol, route.slug);
       if (route.endpoint === "models" && request.method === "GET") return handleModels(request, env, route.slug);
+      if (oauthToken(env) && oauthPassthroughEndpoint(route.endpoint)) {
+        return handleOauthPassthrough(request, env, route.slug, route.endpoint);
+      }
     }
 
     if (request.method === "GET" && (url.pathname === "/admin" || url.pathname === "/memory-admin")) {

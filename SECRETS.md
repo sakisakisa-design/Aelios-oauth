@@ -20,6 +20,7 @@ Cloudflare Worker 的「Variables and Secrets」面板里，**Variable** 是明�
 | `DEBUG_API_KEY` | **Secret** | 调试接口钥匙（可选） |
 | `CF_AIG_TOKEN` | **Secret** | AI Gateway 调用 token（接网关才需要） |
 | `CLOUDFLARE_API_TOKEN` | **Secret** | 可选。仅维护工具（Vectorize 对账/清理）与网关模式的 Workers AI 转发需要；建库建索引由部署环境的 wrangler 凭证完成，不靠它 |
+| `CLAUDE_OAUTH_TOKEN` | **Secret** | 可选，本 fork。`claude setup-token` 的一年期 OAuth。有它时无前缀 `/v1/messages` 直打 Anthropic，不进 AI Gateway。封号风险自担 |
 | `CLOUDFLARE_ACCOUNT_ID` | Variable | 不用手填：部署时 setup 脚本从部署环境自动取了写进 [vars]，多账号等取不到的场景才需要手动补 |
 | `AI_GATEWAY_BASE_URL` | Variable | AI Gateway 地址，不是密钥，可明文 |
 | 其它带默认值的环境变量 | Variable | 可明文 |

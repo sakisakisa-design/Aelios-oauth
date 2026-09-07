@@ -270,7 +270,8 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
     headers.set("x-aelios-normalized", String(prepared.removed.length));
     headers.set("x-aelios-recall-id", recallId);
     headers.set("x-aelios-remember", rememberStatus);
-    headers.set("x-aelios-provider", upstream.headers.get("cf-aig-provider") || "");
+    headers.set("x-aelios-provider", upstream.headers.get("cf-aig-provider")
+      || (prepared.route.auth === "anthropic-oauth" ? "anthropic" : ""));
     headers.set("x-aelios-model", upstream.headers.get("cf-aig-model") || body.model);
     headers.set("cache-control", "no-store");
     const response = new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });

@@ -2,6 +2,7 @@ import { authenticate } from "../auth/apiKey";
 import type { Env } from "../types";
 import { json, openAiError } from "../utils/json";
 import { findIdentity, loadConfig } from "../gateway/config";
+import { fetchAnthropicModels } from "../gateway/oauth";
 import { catalogUrl } from "../gateway/upstream";
 
 /** The upstream owns the real catalog; local main models are only hints when it cannot answer. */
@@ -15,6 +16,14 @@ export async function handleModels(request: Request, env: Env, slug: string | nu
 
   const identity = findIdentity(config, auth, slug);
   if (!identity) return openAiError("No identity available for this key. Configure /admin/gateway.", 403);
+
+  const oauthCatalog = await fetchAnthropicModels(request, env);
+  if (oauthCatalog) {
+    return new Response(oauthCatalog.body, { status: 200, headers: {
+      "content-type": oauthCatalog.headers.get("content-type") || "application/json",
+      "cache-control": "private, no-store", "x-aelios-identity": identity.slug,
+      "x-aelios-models": "anthropic-oauth" } });
+  }
 
   // The catalog lives on the AI Gateway compat surface; CF REST has no GET /models (405).
   const token = env.CLOUDFLARE_API_TOKEN;

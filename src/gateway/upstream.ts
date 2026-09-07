@@ -1,5 +1,12 @@
 import type { Env } from "../types";
 import { isMainModel, PATHS, type GatewayConfig, type Identity, type Protocol } from "./config";
+import {
+  ANTHROPIC_API,
+  anthropicOauthHeaders,
+  cloakEnabled,
+  cloakSystem,
+  wantsOauthMessages
+} from "./oauth";
 import { applyThinkingPolicy, sanitizeCacheControl, stripToolCacheControl, type Body } from "./protocol";
 import { normalizeRequest, validateRequest } from "./request";
 
@@ -87,7 +94,7 @@ export interface UpstreamRoute {
   /** Provider endpoints take the native name; compat keeps the author-prefixed one. */
   model: string;
   /** Provider endpoints carry the CF token as cf-aig-authorization (BYOK); bearer elsewhere. */
-  auth: "bearer" | "cf-aig";
+  auth: "bearer" | "cf-aig" | "anthropic-oauth";
 }
 
 /**
@@ -116,6 +123,25 @@ export function routeFor(resolved: ResolvedUpstream, protocol: Protocol, model: 
 export interface PreparedRequest { route: UpstreamRoute; headers: Headers; body: Body; removed: string[] }
 export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity: Identity,
   protocol: Protocol, original: Request, body: Body): PreparedRequest {
+  if (wantsOauthMessages(env, protocol, body.model)) {
+    const route: UpstreamRoute = {
+      url: `${ANTHROPIC_API}/v1/messages`,
+      model: body.model,
+      auth: "anthropic-oauth"
+    };
+    const headers = anthropicOauthHeaders(original, env);
+    headers.set("content-type", "application/json");
+    headers.set("accept", body.stream ? "text/event-stream" : headers.get("accept") || "application/json");
+    const normalized = normalizeRequest(body, protocol);
+    const out = normalized.body;
+    out.model = route.model;
+    if (isMainModel(identity, body.model)) applyThinkingPolicy(out, identity, protocol, headers);
+    if (cloakEnabled(env)) cloakSystem(out);
+    validateRequest(out, protocol, headers);
+    sanitizeCacheControl(out, protocol);
+    validateRequest(out, protocol, headers);
+    return { route, headers, body: out, removed: normalized.removed };
+  }
   const token = env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Missing Worker secret CLOUDFLARE_API_TOKEN");
   const route = routeFor(resolveUpstream(env, config), protocol, body.model);
