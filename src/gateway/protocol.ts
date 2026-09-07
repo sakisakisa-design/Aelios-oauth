@@ -1,4 +1,5 @@
 import { object, type Identity, type Protocol } from "./config";
+import { cleanMessageText } from "../utils/sanitize";
 
 export type Body = Record<string, any>;
 export function visibleText(content: unknown): string {
@@ -24,7 +25,7 @@ export function recentHumanTexts(body: Body, protocol: Protocol, limit = 4): str
     const item = items[i];
     if (!object(item) || item.role !== "user") continue;
     if (item.type && !["message", "input_message"].includes(item.type)) continue;
-    const text = visibleText(item.content).trim();
+    const text = cleanMessageText(visibleText(item.content));
     if (!text) continue;
     texts.push(text);
   }
@@ -38,7 +39,7 @@ export function classifyTurn(body: Body, protocol: Protocol, auxiliary = false):
   if (auxiliary || !last) return { kind: "auxiliary", text: "", index };
   if (last.role === "tool" || /_call_output$/.test(last.type || "")) return { kind: "tool", text: "", index };
   if (last.role !== "user" || last.type && !["message", "input_message"].includes(last.type)) return { kind: "auxiliary", text: "", index };
-  const text = visibleText(last.content);
+  const text = cleanMessageText(visibleText(last.content));
   const blocks = Array.isArray(last.content) ? last.content : [];
   const tool = blocks.some(p => object(p) && p.type === "tool_result");
   if (tool && !text.trim()) return { kind: "tool", text: "", index };

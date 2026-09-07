@@ -36,8 +36,8 @@ AI_GATEWAY_ID = "default"
 PUBLIC_MODEL_NAME = "companion"
 CHAT_MODEL = "deepseek/deepseek-v4-pro"
 MEMORY_FILTER_MAX_CANDIDATES = "16"
-MEMORY_FILTER_MAX_OUTPUT = "6"
-MEMORY_FILTER_MAX_CONTENT_CHARS = "700"
+MEMORY_FILTER_MAX_OUTPUT = "2"
+MEMORY_FILTER_MAX_CONTENT_CHARS = "240"
 # Recall floor on the raw embedding score, applied BEFORE the reranker. Low on
 # purpose: embeddinggemma under-scores reworded-but-relevant hits (~0.15-0.20).
 # Precision is handled by the reranker downstream.

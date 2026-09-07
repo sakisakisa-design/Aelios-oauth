@@ -12,6 +12,7 @@ import { readDreamCursorValue } from "./dailyDigest";
 import { getIsoWeekLabelForDateLabel } from "./weeklyRollup";
 import { extractJsonObject, readString, readStringArray } from "../utils/parse";
 import { groundedSourceIds } from "./impression";
+import { cleanMessageText } from "../utils/sanitize";
 
 const DEFAULT_DREAM_MODEL = "workers-ai/@cf/openai/gpt-oss-120b";
 const MAX_MESSAGES = 200;
@@ -79,7 +80,7 @@ function formatTranscript(messages: MessageRecord[]): string {
   return messages
     .map((message) => {
       const role = message.role === "assistant" ? "我(助手)" : "用户";
-      return `[${message.id}][${message.created_at}][${role}] ${truncate(message.content.trim(), 700)}`;
+      return `[${message.id}][${message.created_at}][${role}] ${truncate(cleanMessageText(message.content), 700)}`;
     })
     .join("\n\n");
 }

@@ -9,6 +9,7 @@ import { buildCoreFingerprint, runRecall } from "../memory/v2/recall";
 import type { Env } from "../types";
 import { newId } from "../utils/ids";
 import { nowIso } from "../utils/time";
+import { cleanMessageText } from "../utils/sanitize";
 import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type Identity, type Protocol } from "./config";
 import { appendMemory, classifyTurn, hasServerState, inputItems, recentHumanTexts, validateBody, visibleText, type Body } from "./protocol";
 import { RequestContractError } from "./request";
@@ -79,9 +80,10 @@ export async function recallPatch(
 
     const quoteEntries = quotes.map((hit) => ({
       kind: "quote",
-      content: formatQuote(hit),
+      content: formatQuote(hit, { compact: !evidence }),
       id: hit.id,
-      excerpt: hit.excerpt
+      excerpt: hit.excerpt,
+      sourceIds: hit.source_ids
     }));
     const droppedAsQuoteDup = recall.hits.filter((hit) =>
       quotes.some((quote) => quoteOverlaps(hit.content, quote.excerpt || quote.content))
@@ -159,6 +161,7 @@ export async function recallPatch(
     },
     items: assembled.entries.map((entry) => ({
       id: entry.id ?? null,
+      source_ids: entry.sourceIds,
       namespace: entry.namespace,
       kind: entry.kind,
       reason: entry.kind === "quote"
@@ -239,7 +242,7 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
         recallId,
         // A quote still present in this request's history is visible; recalling it
         // would spend budget without adding information.
-        excludeVisibleIn: inputItems(body, protocol).map(item => visibleText(item.content)).join("\n")
+        excludeVisibleIn: inputItems(body, protocol).map(item => cleanMessageText(visibleText(item.content))).join("\n")
       });
       memoryStatus = patch ? "injected" : "empty";
     }

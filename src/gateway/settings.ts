@@ -3,8 +3,8 @@ import type { Env } from "../types";
 // Everything here is editable from /admin/gateway, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
-  { group: "记忆召回", name: "MEMORY_FILTER_MAX_OUTPUT", label: "每次注入几条记忆", hint: "珍贵、术语、普通记忆和周记共用。0 表示本轮不注入" },
-  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "每条记忆最长字数", hint: "注入原文也会按这个长度截断" },
+  { group: "记忆召回", name: "MEMORY_FILTER_MAX_OUTPUT", label: "每次注入几条记忆", hint: "日常建议 1–2 条；显式搜索不受影响。0 表示本轮不注入" },
+  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "每条记忆最长字数", hint: "默认 240，只影响自动注入，显式搜索仍返回完整内容和 ID" },
   { group: "记忆召回", name: "MEMORY_TOP_K", label: "先从向量库取多少条", hint: "取回来再交给重排模型挑" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_CANDIDATES", label: "送进重排的条数" },
   { group: "记忆召回", name: "MEMORY_MIN_SCORE", label: "相似度下限", hint: "只当垃圾闸，精度靠重排。调高会漏掉换了说法的记忆" },
