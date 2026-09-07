@@ -966,6 +966,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
 
       <section x-show="page === 'settings'" class="space-y-4">
         <h1 class="text-2xl font-semibold">设置</h1>
+        <a href="/admin/gateway" class="inline-block text-sm text-coral">查看最近召回：为什么选了这句、为什么没选 →</a>
         <article class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
           <button type="button" @click="toggleTheme()" class="tap mb-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-4 text-sm text-zinc-100 transition duration-150 ease-in-out hover:border-coral">
             <i :data-lucide="theme === 'light' ? 'moon' : 'sun'" class="h-4 w-4"></i>

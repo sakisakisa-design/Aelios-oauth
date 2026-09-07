@@ -83,7 +83,7 @@ test("migrations, native chat recall, namespace isolation, original text and Que
   assert.equal(calls[0].url, "https://upstream.test/ai/v1/chat/completions");
   assert.equal(calls[0].headers.authorization, "Bearer cf-token");
   assert.match(calls[0].query.messages[0].content, /喜欢 Cloudflare/);
-  assert.match(calls[0].query.messages[0].content, /- 喜欢 Cloudflare/);
+  assert.match(calls[0].query.messages[0].content, /相关旧事.*喜欢 Cloudflare/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /番茄炒蛋/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /other identity/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /\[\{"kind"/);
@@ -329,7 +329,7 @@ test("main-model whitelist gates recall and recording; other models pass through
     run("/v1/chat/completions", { model, messages: [{ role: "user", content: text }] });
   await ask("partner");
   assert.equal(calls[0].query.model, "partner");
-  assert.match(JSON.stringify(calls[0].query.messages), /- 喜欢 Cloudflare/);
+  assert.match(JSON.stringify(calls[0].query.messages), /相关旧事.*喜欢 Cloudflare/);
   // Basename match: a glob pattern sees the model name with or without its author prefix.
   const opus = await ask("anthropic/claude-opus-4-6");
   assert.equal(opus.response.headers.get("x-aelios-memory"), "injected");
@@ -519,8 +519,8 @@ test("please-remember writes the original words into long-term memory", async ()
       { role: "user", content: "调试暗号是什么？" }
     ]
   });
-  assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
-  assert.match(JSON.stringify(calls[1].query.messages), /回答旧事：「调试暗号是芝麻开门」/);
+  assert.equal(ask.response.headers.get("x-aelios-memory"), "empty");
+  assert.doesNotMatch(JSON.stringify(calls[1].query.messages), /Aelios 记忆/);
 });
 
 test("evidence recall keeps a distilled memory instead of repeating its source quote", async () => {
@@ -666,17 +666,19 @@ test("cross-space recall shares one budget, deduplicates and records provenance 
   assert.equal(response.status, 200);
   const prompt = calls[0].query.messages[0].content;
   assert.match(prompt, /Cloudflare old memory/);
-  assert.match(prompt, /Cloudflare shared memory/);
+  assert.doesNotMatch(prompt, /Cloudflare shared memory/);
   assert.doesNotMatch(prompt, /private memory|not in read list/);
-  assert.equal((prompt.match(/Cloudflare duplicate/g) || []).length, 1);
-  assert.equal((prompt.match(/^-/gm) || []).length, 3);
+  assert.equal((prompt.match(/Cloudflare duplicate/g) || []).length, 0);
+  assert.equal((prompt.match(/^-/gm) || []).length, 1);
   assert.equal(queue[0].namespace, "new");
   await persistExchange(env, queue[0]);
   assert.deepEqual(sqlite.prepare("SELECT DISTINCT namespace FROM messages").all().map(r => r.namespace), ["new"]);
   const trace = JSON.parse(sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get()!.payload_json as string);
   assert.deepEqual(trace.read_namespaces, ["old", "shared"]);
   assert.equal(trace.write_namespace, "new");
-  assert.deepEqual([...new Set(trace.items.map((x: any) => x.namespace))].sort(), ["old", "shared"]);
+  assert.deepEqual([...new Set(trace.items.map((x: any) => x.namespace))], ["old"]);
+  assert.ok(trace.decisions.some((x: any) => x.namespace === "shared" && x.reason === "duplicate_content"));
+  assert.ok(trace.decisions.some((x: any) => x.namespace === "shared" && x.reason === "item_budget"));
 });
 
 test("two identities can share a space and disabled recall still records original utterances", async () => {
@@ -770,4 +772,63 @@ test("memory plus thinking survives the entire simulated tool loop with upstream
   assert.equal(third.response.headers.get("x-aelios-memory"), "injected");
   assert.equal(calls[2].query.messages.at(-1).content[0].type, "tool_result");
   assert.deepEqual(calls[2].query.messages.slice(0, -1), mixed.messages.slice(0, -1));
+});
+
+test("semantic selector is wired across sources; helper calls never enter conversation storage", async () => {
+  await run("/v1/chat/completions", {model:"partner",messages:[{role:"user",content:"请记住你喜欢下雨天喝热豆浆"}]});
+  precious("partner-a", "下雨天，你答应永远找到旦九。");
+  precious("partner-b", "下雨天其他身份的秘密。");
+  const ordinaryFetch=globalThis.fetch;
+  const seenPayloads:any[]=[];
+  setConfig({...config(),settings:{RECALL_SELECTOR_MODEL:"provider/selector"}});
+  invalidateSettingsCache();
+  globalThis.fetch=async(url,init)=>{
+    const body=JSON.parse(init?.body as string);
+    if(body.model!=="provider/selector")return ordinaryFetch(url,init);
+    const payload=JSON.parse(body.messages[1].content);seenPayloads.push(payload);
+    const selected=payload.candidates.find((c:any)=>c.windows.some((w:any)=>w.text.includes("热豆浆")));
+    assert.ok(selected);
+    assert.ok(payload.candidates.some((c:any)=>c.kind==="precious"));
+    assert.ok(payload.candidates.every((c:any)=>c.space==="partner-a"));
+    return Response.json({choices:[{finish_reason:"stop",message:{content:JSON.stringify({intent:"association",selected:[selected.id],assessments:payload.candidates.map((c:any)=>({
+      id:c.id,window:0,purpose:c.id===selected.id?"association":"none",answerable:true,event_status:"occurred",event_date:"",event_key:c.id,reason:c.id===selected.id?"雨天早餐偏好与这次闲聊相关":"承诺与当前早餐话题无关"
+    }))})}}]});
+  };
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"下雨了，早餐吃点什么呢"}]});
+  assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  assert.equal(seenPayloads.length,1);
+  const prompt=calls.at(-1).query.messages[0].content;
+  assert.match(prompt,/热豆浆/);assert.doesNotMatch(prompt,/永远|秘密|event_key/);
+  assert.equal((prompt.match(/^- /gm)||[]).length,1);
+  assert.equal(queue.length,2);assert.ok(queue.every(e=>e.model!=="provider/selector"));
+  const history=await run("/api/gateway/recalls?identity=partner");
+  const records=JSON.parse(history.text).items;
+  const trace=records.find((r:any)=>r.selection?.status==="semantic");
+  assert.ok(trace.decisions.some((d:any)=>d.kind==="precious"&&!d.injected&&d.reason.includes("无关")));
+  assert.ok(trace.decisions.some((d:any)=>d.injected&&d.excerpt.includes("热豆浆")));
+});
+
+test("semantic failure continues the chat and remains distinguishable in recall history", async () => {
+  precious("partner-a","你喜欢雨天喝热豆浆。");
+  setConfig({...config(),settings:{RECALL_SELECTOR_MODEL:"provider/selector"}});
+  invalidateSettingsCache();
+  const ordinaryFetch=globalThis.fetch;
+  globalThis.fetch=async(url,init)=>JSON.parse(init?.body as string).model==="provider/selector"
+    ? Response.json({error:"down"},{status:503}) : ordinaryFetch(url,init);
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"雨天喝什么"}]});
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"empty");
+  assert.doesNotMatch(calls.at(-1).query.messages[0].content,/Aelios 记忆/);
+  const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
+  assert.equal(rows[0].selection.status,"error");assert.equal(rows[0].selection.reason,"selector_http_503");
+  assert.equal((await run("/api/gateway/recalls?identity=partner",undefined,{authorization:"Bearer im-key"})).response.status,401);
+  assert.equal((await run("/api/gateway/recalls?identity=missing")).response.status,400);
+});
+
+test("recall history filters identities sharing the same write space", async () => {
+  setConfig({...config(),identities:[identity(),{...identity(),slug:"other"}]});
+  precious("partner-a","你喜欢 Cloudflare。");
+  await run("/partner/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 怎么样"}]});
+  await run("/other/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 好用吗"}]});
+  const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
+  assert.equal(rows.length,1);assert.equal(rows[0].identity,"partner");
 });

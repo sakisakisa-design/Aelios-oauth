@@ -15,6 +15,10 @@ export interface SurfaceEntry {
   exact?: boolean;
   window?: number;
   purpose?: "answer" | "association";
+  recordedDate?: string | null;
+  eventDate?: string | null;
+  factKey?: string | null;
+  speaker?: string;
 }
 
 export interface SurfaceOptions {
@@ -51,8 +55,7 @@ export function assembleRecallSurface(entries: SurfaceEntry[], options: SurfaceO
         ...(entry.purpose ? { purpose: entry.purpose } : {})
       };
     })
-    .filter((entry) => entry.kind && entry.content)
-    .slice(0, Math.max(maxItems, 0));
+    .filter((entry) => entry.kind && entry.content);
   if (cleaned.length === 0) return { text: "", entries: [] };
 
   const header = "[Aelios 记忆：仅供本轮参考，可能已经过时]\n";
@@ -63,6 +66,7 @@ export function assembleRecallSurface(entries: SurfaceEntry[], options: SurfaceO
   const used: SurfaceEntry[] = [];
   let usedChars = 0;
   for (const entry of cleaned) {
+    if (used.length >= Math.max(maxItems, 0)) break;
     const remaining = budget - overhead - usedChars;
     if (remaining <= 24) break;
     if (entry.exact && entry.content.length + 4 > remaining) continue;

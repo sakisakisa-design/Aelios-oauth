@@ -3,8 +3,10 @@ import type { Env } from "../types";
 // Everything here is editable from /admin/gateway, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
+  { group: "记忆召回", name: "RECALL_SELECTOR_MODEL", label: "召回判断模型", hint: "填 CF 网关支持的 author/model，所有来源一起判断，只摘原文。留空用简单词面筛选；配置后替代自动召回的重排，闲聊最多 1 条，回答旧事最多 2 条" },
+  { group: "记忆召回", name: "RECALL_SELECTOR_TIMEOUT_MS", label: "召回判断最多等多久（毫秒）", hint: "默认 5000，上限 15000。超时继续聊天，本轮不注入记忆，原因写入召回记录" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_OUTPUT", label: "每次注入几条记忆", hint: "日常建议 1–2 条；显式搜索不受影响。0 表示本轮不注入" },
-  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "非窗口条目最长字数", hint: "珍贵/词条等仍按此截断。普通记忆自动注入改走不超过 400 字的原文窗口，不再改写成摘要。显式搜索仍返回完整内容和 ID" },
+  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "重排参考文本长度", hint: "未配置召回判断模型时用于重排。自动注入统一使用不超过 400 字的原文窗口；显式搜索返回完整内容和 ID" },
   { group: "记忆召回", name: "MEMORY_TOP_K", label: "先从向量库取多少条", hint: "取回来再交给重排模型挑" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_CANDIDATES", label: "送进重排的条数" },
   { group: "记忆召回", name: "MEMORY_MIN_SCORE", label: "相似度下限", hint: "只当垃圾闸，精度靠重排。调高会漏掉换了说法的记忆" },

@@ -2,6 +2,7 @@ import { listActiveFactKeys } from "../db/v2";
 import { callOpenAICompat } from "../proxy/openaiAdapter";
 import type { Env, MessageRecord, OpenAIChatRequest, OpenAIChatResponse } from "../types";
 import { clampScore, extractJsonObject, readString, readStringArray } from "../utils/parse";
+import { cleanMessageText } from "../utils/sanitize";
 import { clampMemoryType } from "./canonicalTypes";
 import type { ExtractedMemory } from "./extract";
 
@@ -61,7 +62,7 @@ function formatTranscript(messages: MessageRecord[]): string {
   return messages
     .map((message) => {
       const role = message.role === "assistant" ? "我(助手)" : "用户";
-      return `[${message.id}][${message.created_at}][${role}] ${message.content.trim().slice(0, 900)}`;
+      return `[${message.id}][${message.created_at}][${role}] ${cleanMessageText(message.content).slice(0, 900)}`;
     })
     .join("\n\n");
 }
@@ -90,6 +91,9 @@ export function buildDreamExtractPrompt(messages: MessageRecord[], existingFactK
     "- 不保存普通寒暄、临时任务、调试口令、纯情绪噪音、后端实现流水账。",
     "- 只有用户明确说出、确认、长期表现出的事实，才能写成关于用户的记忆。",
     "- 关于用户的记忆，优先写成“你……”。关于我应遵守的长期方式，写成“我需要……”。",
+    "- 每条记忆只围绕一个人物的一件事或一项偏好。不同话题分开；同一事件的相邻发言合成一条，source_message_ids 保留全部依据。",
+    "- 正文写清主体和必要时间，保留否定、条件、计划/完成状态。不能把工具调用当作已执行成功，不能把计划写成经历。",
+    "- from 哈希、msg_id、传输信封不写入正文，消息 ID 只放 source_message_ids。",
     "- 信息类（fact/decision/habit 等稳定事实）：content 压到 1-2 句自然短句。",
     "- 情感/关系类（relationship/boundary/event 里的关系事件）：可以写 3-5 句，保留温度和关键原话——用「」嵌入原话片段，不为压短丢掉说话人的语气。引用原话一律用「」，不用英文双引号（JSON 转义安全）。",
     "- type 只能从这 8 个里选：fact、event、preference、relationship、boundary、habit、decision、note。绝不输出 project、world_fact、commitment 等其他值；项目进展归 fact，承诺/决定归 decision，习惯归 habit。",

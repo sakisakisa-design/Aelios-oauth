@@ -1,6 +1,6 @@
 import { authenticate } from "../auth/apiKey";
 import type { Env } from "../types";
-import { invalidateSettingsCache, loadConfig, validateConfig } from "./config";
+import { identityNamespace, invalidateSettingsCache, loadConfig, validateConfig } from "./config";
 import { describeSettings } from "./settings";
 
 async function ownerOnly(request: Request, env: Env): Promise<boolean> {
@@ -28,6 +28,21 @@ export async function handleGatewayAdmin(request: Request, env: Env): Promise<Re
     invalidateSettingsCache();
     return Response.json({ ok: true, identities: config.identities.length, settings: Object.keys(config.settings || {}).length });
   } catch { return Response.json({ error: "Configuration store unavailable. Apply D1 migrations first." }, { status: 503 }); }
+}
+/** Read-only recall explanations for one configured identity, including empty/error decisions. */
+export async function handleRecallHistory(request: Request, env: Env): Promise<Response> {
+  if (!await ownerOnly(request, env)) return Response.json({ error: "Owner key required" }, { status: 401 });
+  const slug = new URL(request.url).searchParams.get("identity");
+  const config = await loadConfig(env);
+  const identity = config.identities.find(i => i.slug === slug);
+  if (!identity) return Response.json({ error: "Unknown identity" }, { status: 400 });
+  const rows = await env.DB.prepare(`SELECT id, created_at, payload_json FROM memory_events
+    WHERE namespace = ? AND event_type = 'recall_explain' AND json_extract(payload_json, '$.identity') = ?
+    ORDER BY created_at DESC, id DESC LIMIT 20`).bind(identityNamespace(identity), identity.slug)
+    .all<{ id: string; created_at: string; payload_json: string }>();
+  return Response.json({ items: (rows.results || []).map(row => ({
+    id: row.id, created_at: row.created_at, ...JSON.parse(row.payload_json)
+  })) }, { headers: { "cache-control": "no-store" } });
 }
 export function gatewayAdminPage(): Response {
   return new Response(PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -76,6 +91,10 @@ details{margin-top:8px}summary{cursor:pointer;color:#a6b4c3}
 <section><h2>环境设置</h2><p class="hint">每格留空就是用默认值，灰字是当前生效的值。点「读取」后出现。</p><div id="settings"></div>
 <h3>钥匙状态</h3><p class="hint">钥匙都在 Worker 设置里，这里只看在不在。</p><div id="secrets"></div></section>
 
+<section><h2>为什么想起这件事</h2><p>查看最近 20 次召回，包括没有选中记忆和判断失败的原因。</p>
+<label>助手<select id="recallIdentity"></select></label><button id="loadRecalls" class="ghost">查看最近召回</button>
+<div id="recallHistory" aria-live="polite"></div></section>
+
 <section><details><summary>接入约定</summary>
 <p>每位一个地址：Chatbox 等 OpenAI 兼容客户端填 <code>https://本站/名字/v1</code>；Claude Code 的 ANTHROPIC_BASE_URL 填 <code>https://本站/名字</code>；Codex 的 base_url 填 <code>https://本站/名字/v1</code> 并设 wire_api = "responses"。不带名字的 <code>/v1</code> 走这把钥匙的第一位。</p>
 <p>模型名原样送到 CF，选错人家（比如在 Claude Code 里点 GPT）由 CF 报错。轮询和 fallback 在 CF AI Gateway 的动态路由里配，这里不管。可用 <code>x-aelios-purpose: auxiliary</code> 标记内部任务，不召回也不进 Dream。临时记忆只跟着主模型的当次请求走，工具续轮不带。</p></details></section>
@@ -117,6 +136,9 @@ function render(config){
   el('cfAddress').value=(config.upstream&&config.upstream.address)||'';
   el('identities').innerHTML='';
   (config.identities||[]).forEach(addCard);
+  recallRevision++;
+  el('recallIdentity').replaceChildren(...(config.identities||[]).map(i=>h('option',{value:i.slug,text:i.slug})));
+  el('recallHistory').replaceChildren();
 }
 function collect(){
   const config={version:3,identities:[...document.querySelectorAll('#identities .card')].map(c=>c.collect())};
@@ -143,4 +165,30 @@ el('load').onclick=async()=>{try{const config=await request('GET');render(config
   status('读好了。')}catch(e){status(e.message)}};
 el('save').onclick=async()=>{try{const data=await request('PUT',collect());status('保存好了，'+data.identities+' 个助手。环境设置最长 10 秒全网生效。')}catch(e){status(e.message)}};
 el('addIdentity').onclick=()=>addCard();
+let recallRevision=0;
+el('recallIdentity').onchange=()=>{recallRevision++;el('recallHistory').replaceChildren()};
+el('loadRecalls').onclick=async()=>{
+  const revision=++recallRevision, identity=el('recallIdentity').value;
+  el('recallHistory').replaceChildren(h('p',{text:'读取中…'}));
+  try {
+    const response=await fetch('/api/gateway/recalls?identity='+encodeURIComponent(identity),{headers:{authorization:'Bearer '+el('key').value}});
+    const data=await response.json();if(!response.ok)throw Error(data.error||response.status);
+    if(revision!==recallRevision)return;
+    const reasonText=reason=>({selector_not_configured:'尚未配置召回判断模型',latest_requires_selector:'需要判断事件先后，请配置召回判断模型',selector_timeout:'判断超时，聊天照常继续',selector_invalid_response:'判断模型返回了无法验证的结果',selector_incomplete_response:'判断模型的回答不完整',duplicate_content:'同一内容只保留一份',already_visible:'聊天历史里已经有了',item_budget:'已选出更合适的记忆',candidate_budget:'超过本次候选数量',no_lexical_support:'简单筛选没有找到对应词语',lexical_fallback_selected:'简单筛选找到了相关词语',empty_content:'没有可用正文'}[reason]||reason);
+    const labels={semantic:'模型判断',lexical:'简单词面筛选',empty:'没有候选',error:'判断失败，本轮不注入'};
+    const box=el('recallHistory');box.replaceChildren();
+    for(const item of data.items){
+      const selection=item.selection||{};
+      const card=h('div',{class:'card'},h('h3',{text:item.query||'本轮'}),h('p',{text:item.created_at+' · '+(labels[selection.status]||'旧版召回')+' · 注入 '+item.injected+' 条'}));
+      if(selection.reason)card.append(h('p',{text:reasonText(selection.reason)}));
+      for(const decision of item.decisions||[]){
+        const detail=h('details',{},h('summary',{text:(decision.injected?'已选 · ':'未选 · ')+reasonText(decision.reason||'')}));
+        if(decision.excerpt)detail.append(h('p',{text:decision.excerpt}));
+        detail.append(h('p',{class:'hint',text:(decision.namespace||'')+' / '+(decision.id||decision.kind||'')}));card.append(detail);
+      }
+      box.append(card);
+    }
+    if(!data.items.length)box.append(h('p',{text:'还没有召回记录。'}));
+  }catch(error){if(revision===recallRevision)el('recallHistory').replaceChildren(h('p',{text:error.message}))}
+};
 </script></body></html>`;
