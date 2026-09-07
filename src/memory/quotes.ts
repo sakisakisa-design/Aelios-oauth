@@ -97,11 +97,11 @@ async function searchQuotesLike(
 /** A verbatim quote already present in the request's own history is visible to
  * both parties; recalling it spends budget without adding information. */
 export function quoteVisibleIn(hit: Pick<QuoteHit, "content" | "excerpt">, contextText: string): boolean {
-  const ctx = contextText.replace(/\s+/g, " ");
+  const ctx = cleanMessageText(contextText).replace(/\s+/g, " ");
   if (!ctx.trim()) return false;
-  let core = (hit.excerpt || hit.content).replace(/\s+/g, " ").replace(/^[…\s]+|[…\s]+$/g, "");
+  let core = cleanMessageText(hit.excerpt || hit.content).replace(/\s+/g, " ").replace(/^[…\s]+|[…\s]+$/g, "");
   if (core.length > 200) core = core.slice(Math.floor((core.length - 200) / 2), Math.floor((core.length - 200) / 2) + 200);
-  if (core.length < 8) core = hit.content.replace(/\s+/g, " ").trim().slice(0, 160);
+  if (core.length < 8) core = cleanMessageText(hit.content).replace(/\s+/g, " ").trim().slice(0, 160);
   return core.length >= 8 && ctx.includes(core);
 }
 
@@ -150,12 +150,30 @@ function compactKey(text: string): string {
   return cleanMessageText(text).toLowerCase().replace(/\s+/g, "").replace(/[，,。.!！?？；;：:“”"'`、]/g, "");
 }
 
-function sameConversationEvent(a: QuoteHit, b: QuoteHit): boolean {
+function compareQuoteOrder(a: QuoteHit, b: QuoteHit): number {
+  return a.created_at.localeCompare(b.created_at) || (a.seq ?? 0) - (b.seq ?? 0);
+}
+
+function withinEventWindow(a: QuoteHit, b: QuoteHit): boolean {
   if (a.conversation_id !== b.conversation_id) return false;
   const delta = Math.abs(Date.parse(a.created_at) - Date.parse(b.created_at));
-  if (!Number.isFinite(delta) || delta > QUOTE_EVENT_WINDOW_MS) return false;
-  if (a.seq === undefined || b.seq === undefined) return delta === 0;
-  return Math.abs(a.seq - b.seq) <= 1 || delta === 0;
+  return Number.isFinite(delta) && delta <= QUOTE_EVENT_WINDOW_MS;
+}
+
+/** Immediate chronological neighbours only. Gateway persist writes user=0 /
+ * assistant=1 on every turn, so seq cannot mean "adjacent turn" and must not
+ * grow a connected 90s component across a whole session. */
+function chronologicalNeighbors(seed: QuoteHit, candidates: QuoteHit[]): QuoteHit[] {
+  const pool = [seed, ...candidates.filter((hit) => hit.conversation_id === seed.conversation_id)]
+    .sort(compareQuoteOrder);
+  const index = pool.findIndex((hit) => hit.id === seed.id);
+  if (index < 0) return [];
+  const related: QuoteHit[] = [];
+  const prev = pool[index - 1];
+  const next = pool[index + 1];
+  if (prev && withinEventWindow(seed, prev)) related.push(prev);
+  if (next && withinEventWindow(seed, next)) related.push(next);
+  return related;
 }
 
 function mergeQuoteEvent(primary: QuoteHit, related: QuoteHit[]): QuoteHit {
@@ -190,20 +208,10 @@ function clusterQuotes(hits: QuoteHit[], limit: number): QuoteHit[] {
   const pending = hits.sort((a, b) => b.score - a.score || b.created_at.localeCompare(a.created_at));
   while (pending.length) {
     const hit = pending.shift()!;
-    // Grow a connected event, not just direct neighbours of the best-scoring
-    // sentence. Three consecutive turns should still consume one slot even if
-    // the first and third are more than one seq apart.
-    const related: QuoteHit[] = [];
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (let i = pending.length - 1; i >= 0; i -= 1) {
-        const candidate = pending[i];
-        if (![hit, ...related].some(member => sameConversationEvent(member, candidate))) continue;
-        related.push(candidate);
-        pending.splice(i, 1);
-        expanded = true;
-      }
+    const related = chronologicalNeighbors(hit, pending);
+    for (const neighbor of related) {
+      const at = pending.findIndex((candidate) => candidate.id === neighbor.id);
+      if (at >= 0) pending.splice(at, 1);
     }
     const duplicate = kept.some((other) =>
       compactKey(other.excerpt).includes(compactKey(hit.excerpt)) || compactKey(hit.excerpt).includes(compactKey(other.excerpt))

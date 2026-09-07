@@ -350,6 +350,34 @@ test("adjacent quote hits from one conversation consume one recall slot", async 
   sqlite.close();
 });
 
+test("gateway role-local seq does not collapse a multi-minute conversation", async () => {
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec(`CREATE TABLE messages (
+    id TEXT PRIMARY KEY, conversation_id TEXT, namespace TEXT, role TEXT, content TEXT,
+    source TEXT, created_at TEXT, seq INTEGER NOT NULL DEFAULT 0
+  )`);
+  const insert = sqlite.prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  // Gateway persist writes user=0 / assistant=1 on every turn.
+  insert.run("u1", "gw_session", "ns", "user", "我准备迁企微", "gw", "2026-09-06T12:00:00.000Z", 0);
+  insert.run("a1", "gw_session", "ns", "assistant", "好，宁皎那边我来搬", "gw", "2026-09-06T12:00:20.000Z", 1);
+  insert.run("u2", "gw_session", "ns", "user", "登录账号怎么办", "gw", "2026-09-06T12:01:10.000Z", 0);
+  insert.run("a2", "gw_session", "ns", "assistant", "用宁皎原来的企微账号", "gw", "2026-09-06T12:01:40.000Z", 1);
+  insert.run("u3", "gw_session", "ns", "user", "那客户资料也迁过去吗", "gw", "2026-09-06T12:02:20.000Z", 0);
+  insert.run("a3", "gw_session", "ns", "assistant", "客户资料跟宁皎一起迁", "gw", "2026-09-06T12:03:00.000Z", 1);
+  const hits = await searchQuotes(wrapSqlite(sqlite) as any, {
+    namespace: "ns",
+    query: "迁企微 宁皎 账号 客户资料",
+    limit: 4
+  });
+  assert.ok(hits.length >= 2, `expected multiple events, got ${hits.length}`);
+  assert.ok(
+    hits.every((hit) => (hit.source_ids ?? [hit.id]).length <= 3),
+    JSON.stringify(hits.map((hit) => hit.source_ids))
+  );
+  assert.ok(!hits.some((hit) => (hit.source_ids ?? []).length === 6));
+  sqlite.close();
+});
+
 test("quotes already visible in the request history are not recalled", async () => {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(`CREATE TABLE messages (
@@ -375,6 +403,9 @@ test("quotes already visible in the request history are not recalled", async () 
   const visible = await searchQuotes(db as any, { namespace: "ns", query: "调试暗号是什么？",
     excludeVisibleIn: "前面的话\n请记住调试暗号是芝麻开门\n后面的话" });
   assert.equal(visible.length, 0);
+  const enveloped = await searchQuotes(db as any, { namespace: "ns", query: "调试暗号是什么？",
+    excludeVisibleIn: '<message from="9fc3ec3b" msg_id="7812076508172213971">请记住调试暗号是芝麻开门</message>' });
+  assert.equal(enveloped.length, 0);
   const forgotten = await searchQuotes(db as any, { namespace: "ns", query: "调试暗号是什么？",
     excludeVisibleIn: "上下文压缩后只剩完全不相关的内容" });
   assert.ok(forgotten.some((hit) => hit.content.includes("芝麻开门")));
