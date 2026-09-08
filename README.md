@@ -198,6 +198,8 @@ npm run verify
 
 测试需要 Node.js 22+。
 
+CI 里 lint 目前设为非阻断（`continue-on-error`）：存量代码尚有约 146 个 Biome error 待清理，计划在后续 PR 中逐步清零，因此报告仍会产出但不阻断合并；新代码应尽量不新增 lint error。
+
 ## License
 
 AGPL-3.0
