@@ -1,5 +1,6 @@
 import type { MemoryLifecycleRow, MemoryRecord } from "../types";
 import { deleteFtsRow, searchFtsIds, upsertMemoryFts } from "../memory/fts";
+import { lexicalHitScore } from "../memory/queryShape";
 import { newId } from "../utils/ids";
 import { nowIso } from "../utils/time";
 
@@ -332,18 +333,6 @@ export async function softDeleteMemory(
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
-}
-
-function lexicalHitScore(content: string, query: string, tokens: string[]): number {
-  const lower = content.toLowerCase();
-  const queryLower = query.toLowerCase();
-  const exact = queryLower.length >= 2 && lower.includes(queryLower) ? 0.15 : 0;
-  if (tokens.length === 0) return exact ? 0.75 : 0.5;
-  let hits = 0;
-  for (const token of tokens) {
-    if (token && lower.includes(token.toLowerCase())) hits += 1;
-  }
-  return Math.min(0.95, 0.35 + (hits / tokens.length) * 0.5 + exact);
 }
 
 export async function searchMemoriesByText(

@@ -66,6 +66,7 @@ export async function recallPatch(
         k: 12,
         core_fingerprint: buildCoreFingerprint([]),
         skip_inject_mark: true,
+        grounded: false,
         attach_week_blocks: temporal,
         waitUntil: promise => ctx.waitUntil(promise.catch(() => console.error("gateway recall accounting failed")))
       }),

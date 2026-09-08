@@ -330,6 +330,8 @@ export interface RecallInput {
   waitUntil?: (promise: Promise<unknown>) => void;
   // Gateway applies the unified surface budget first, then marks only those ids.
   skip_inject_mark?: boolean;
+  // False = nomination pool for a later reranker. Default true for explicit search.
+  grounded?: boolean;
   // Week diaries are impressions, not evidence. Only attach when the question is temporal.
   attach_week_blocks?: boolean;
 }
@@ -433,7 +435,9 @@ export async function runRecall(env: Env, input: RecallInput): Promise<RecallRes
     types: input.types,
     topK: k,
     includeHistory: input.include_history === true,
-    waitUntil: input.waitUntil
+    waitUntil: input.waitUntil,
+    grounded: input.grounded !== false,
+    skipRecallMark: input.skip_inject_mark === true || input.grounded === false
   });
   const rawMemories: MemoryApiRecordWithProvenance[] = searchResult.records;
   // 严格模式下 (RECALL_REQUIRE_D1_BACKING=true) 已经在 search 层丢弃的孤儿向量命中数。
@@ -536,6 +540,9 @@ export async function runRecall(env: Env, input: RecallInput): Promise<RecallRes
   const flooredIds: string[] = [];
   const allHits = beforeFloor
     .filter((hit) => {
+      // Nomination pools stay wide for the later reranker. Explicit search
+      // still drops scores that only cleared the padded lexical floor.
+      if (input.grounded === false) return true;
       if ((hit.raw_score ?? hit.score) >= minScore) return true;
       flooredIds.push(hit.id);
       return false;
