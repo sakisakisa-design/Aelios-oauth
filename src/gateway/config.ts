@@ -23,9 +23,9 @@ export interface Identity {
   models: string[];
   anthropicThinking?: "passthrough" | "drop_block";
   maxMemoryChars?: number;
-  /** 用户显示名。Dream 写事实时用这个名字，不要写 user/用户。 */
+  /** 用户显示名。Dream / 日记 / 周月卷 / 审核写事实时用这个名字，不要写 user/用户。 */
   userName?: string;
-  /** 助手显示名。Dream 写事实时用这个名字，不要写 assistant/助手。空则回退到 slug。 */
+  /** 助手显示名。Dream / 日记 / 周月卷 / 审核写事实时用这个名字，不要写 assistant/助手。空则回退到 slug。 */
   assistantName?: string;
 }
 export interface GatewayConfig {
@@ -128,7 +128,7 @@ export type DreamSpeakers = {
   assistantName: string;
 };
 
-/** Dream 写事实用的说话人名字。没填用户名则返回 null，回退到旧的「你/我」。 */
+/** 写记忆/日记用的说话人名字。没填用户名则返回 null，回退到旧的「你/我」。 */
 export function identitySpeakers(identity: Identity | undefined): DreamSpeakers | null {
   if (!identity) return null;
   const userName = identity.userName?.trim();

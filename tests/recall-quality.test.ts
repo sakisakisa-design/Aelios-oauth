@@ -659,6 +659,30 @@ test("judge does not archive a still-valid fact and rejects string booleans", ()
   } as MemoryCandidateRow, []);
   assert.match(deletePrompt, /归档提案|应不应该删/);
   assert.doesNotMatch(deletePrompt, /score 高 = 值得新增/);
+
+  const named = buildJudgePrompt({
+    id: "cand_2",
+    namespace: "ns",
+    type: "fact",
+    content: "调试暗号是芝麻开门",
+    fact_key: "fact:pass",
+    confidence: 0.9,
+    importance: 0.9,
+    tags: "[]",
+    source_message_ids: "[]",
+    source: "dream_update",
+    status: "pending",
+    target_memory_id: "mem_1",
+    decision_note: null,
+    created_at: "2026-09-06",
+    updated_at: "2026-09-06"
+  } as MemoryCandidateRow, [{
+    id: "msg_1", conversation_id: "c", namespace: "ns", role: "user",
+    content: "改成这样", source: "test", created_at: "2026-09-06T00:00:00.000Z"
+  }], { userName: "咲咲", assistantName: "旦九" });
+  assert.match(named, /用户是咲咲，助手是旦九/);
+  assert.match(named, /\[msg_1\].*\[咲咲\]/);
+  assert.match(named, /咲咲用新内容明确修正了旧事实/);
 });
 
 test("FTS id hits keep SQL binds aligned and still find the rows", async () => {

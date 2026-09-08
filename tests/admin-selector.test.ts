@@ -119,6 +119,40 @@ test('gateway editor round-trips speaker names for dream writing', async () => {
   assert.match(ADMIN_HTML, /用户叫什么,如 咲咲/);
 });
 
+test('top identity picker saves speaker names without wiping the rest of gateway config', async () => {
+  const { app } = panel();
+  await app.init();
+  const saved: any[] = [];
+  app.request = async (path: string, options: any = {}) => {
+    if (path === '/api/gateway/config' && options.method === 'PUT') {
+      saved.push(JSON.parse(options.body));
+      return { identities: 2 };
+    }
+    if (path === '/api/gateway/config') {
+      return {
+        version: 3,
+        upstream: { address: 'https://keep.test/v1' },
+        identities: [
+          { slug: 'danjiu', namespace: 'default', keys: ['CHATBOX_API_KEY'], models: ['*opus*'] },
+          { slug: 'ningjiao', namespace: 'ning', keys: ['CHATBOX_API_KEY'], models: ['*'] }
+        ]
+      };
+    }
+    return { data: [] };
+  };
+  app.selectedIdentity = 'danjiu';
+  app.speakerUserName = '咲咲';
+  app.speakerAssistantName = '旦九';
+  await app.saveSpeakers();
+  assert.equal(saved[0].upstream.address, 'https://keep.test/v1');
+  assert.equal(saved[0].identities[0].userName, '咲咲');
+  assert.equal(saved[0].identities[0].assistantName, '旦九');
+  assert.equal(saved[0].identities[0].models[0], '*opus*');
+  assert.equal(saved[0].identities[1].slug, 'ningjiao');
+  assert.equal(saved[0].identities[1].userName, undefined);
+  assert.match(ADMIN_HTML, /说话人名字/);
+});
+
 test('recall history in admin follows the selected assistant and keeps empty/error explanations', async () => {
   const { app } = panel();
   await app.init();

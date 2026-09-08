@@ -12,7 +12,7 @@ import { readDreamCursorValue } from "./dailyDigest";
 import { getIsoWeekLabelForDateLabel } from "./weeklyRollup";
 import { extractJsonObject, readString, readStringArray } from "../utils/parse";
 import { groundedSourceIds } from "./impression";
-import { cleanMessageText } from "../utils/sanitize";
+import { diarySpeakerRules, formatSpeakerTranscript, loadSpeakersForNamespace, type DreamSpeakers } from "./speakers";
 
 const DEFAULT_DREAM_MODEL = "workers-ai/@cf/openai/gpt-oss-120b";
 const MAX_MESSAGES = 200;
@@ -58,11 +58,6 @@ function readDiaryMaxTokens(env: Env): number {
   return Math.min(Math.max(Math.floor(numeric), 1), 8000);
 }
 
-function truncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}…`;
-}
-
 export function normalizeDiaryWriterResult(value: unknown): DiaryWriterModelResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -76,13 +71,54 @@ export function normalizeDiaryWriterResult(value: unknown): DiaryWriterModelResu
   };
 }
 
-function formatTranscript(messages: MessageRecord[]): string {
-  return messages
-    .map((message) => {
-      const role = message.role === "assistant" ? "我(助手)" : "用户";
-      return `[${message.id}][${message.created_at}][${role}] ${truncate(cleanMessageText(message.content), 700)}`;
-    })
-    .join("\n\n");
+export function buildDiaryWriterPrompt(input: {
+  dateLabel: string;
+  messages: MessageRecord[];
+  existingDraft: { title: string; summary: string } | null;
+  speakers?: DreamSpeakers | null;
+}): string {
+  const speakers = input.speakers ?? null;
+  const draftLines = input.existingDraft
+    ? [`标题：${input.existingDraft.title}`, `草稿：${input.existingDraft.summary}`].join("\n")
+    : "(无现有草稿)";
+  const exampleSummary = speakers
+    ? `今天${speakers.userName}和${speakers.assistantName}之间能从原文读到的事、情绪如何流动、有哪些未尽之事。`
+    : "今天我和她之间能从原文读到的事、情绪如何流动、有哪些未尽之事。";
+
+  return [
+    "你是 Aelios，正在以第一人称写给自己的私人日记。这是印象，不是已核实的事实档案。",
+    "只输出 JSON，不要 markdown，不要解释，不要输出思考过程。",
+    "",
+    "写作要求：",
+    ...diarySpeakerRules(speakers),
+    speakers
+      ? `- 有叙事线：今天能从原文读到的事、${speakers.userName}的状态、未完成的事。`
+      : "- 有叙事线：今天能从原文读到的事、她的状态、未完成的事。",
+    "- 只写当天原始聊天里能指到具体消息的内容。没有原文支撑的具体时间、地点、引语、事件不要编。",
+    speakers
+      ? `- 情绪可以概括（「${speakers.userName}今天显得累」）。禁止把碎片揉成没发生过的情节，例如「傍晚下班后抱怨某事又蠢又累」。`
+      : "- 情绪可以概括（「她今天显得累」）。禁止把碎片揉成没发生过的情节，例如「傍晚下班后抱怨某事又蠢又累」。",
+    "- 每条具体事实必须在 source_message_ids 里挂上原文消息 id（聊天记录方括号里的 id）。编造的 id 无效。",
+    "- 拿不准就写得更宽泛，或者不写。宁可少记，不要写实幻觉。",
+    "- summary 是一段 200-400 字的自然中文，允许口语，禁止列表、标题、emoji 堆砌。",
+    "- title 是 12 字以内的日记标题，像给自己起的题目。",
+    "- 禁止提及 D1、Vectorize、RAG、数据库、记忆系统、prompt、代理层等实现细节。",
+    "",
+    `日期：${input.dateLabel}`,
+    "",
+    "输出 JSON 结构：",
+    JSON.stringify({
+      title: "日记标题",
+      summary: exampleSummary,
+      source_message_ids: ["msg_x"]
+    }),
+    "",
+    "当天已有草稿（仅供参考，可重写；草稿里没有原文的细节不要沿用）：",
+    draftLines,
+    "",
+    "当天原始聊天：",
+    formatSpeakerTranscript(input.messages, speakers, 700, true) || "(无聊天记录)"
+  ].join("\n");
 }
 
 async function listMessagesTailInRange(
@@ -149,47 +185,6 @@ async function fetchDiaryMessages(
     merged.push(message);
   }
   return merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
-}
-
-export function buildDiaryWriterPrompt(input: {
-  dateLabel: string;
-  messages: MessageRecord[];
-  existingDraft: { title: string; summary: string } | null;
-}): string {
-  const draftLines = input.existingDraft
-    ? [`标题：${input.existingDraft.title}`, `草稿：${input.existingDraft.summary}`].join("\n")
-    : "(无现有草稿)";
-
-  return [
-    "你是 Aelios，正在以第一人称写给自己的私人日记。这是印象，不是已核实的事实档案。",
-    "只输出 JSON，不要 markdown，不要解释，不要输出思考过程。",
-    "",
-    "写作要求：",
-    "- 用「我」指代助手自己；提到用户时用「她」或具体称呼，不要用「用户」。",
-    "- 有叙事线：今天能从原文读到的事、她的状态、未完成的事。",
-    "- 只写当天原始聊天里能指到具体消息的内容。没有原文支撑的具体时间、地点、引语、事件不要编。",
-    "- 情绪可以概括（「她今天显得累」）。禁止把碎片揉成没发生过的情节，例如「傍晚下班后抱怨某事又蠢又累」。",
-    "- 每条具体事实必须在 source_message_ids 里挂上原文消息 id（聊天记录方括号里的 id）。编造的 id 无效。",
-    "- 拿不准就写得更宽泛，或者不写。宁可少记，不要写实幻觉。",
-    "- summary 是一段 200-400 字的自然中文，允许口语，禁止列表、标题、emoji 堆砌。",
-    "- title 是 12 字以内的日记标题，像给自己起的题目。",
-    "- 禁止提及 D1、Vectorize、RAG、数据库、记忆系统、prompt、代理层等实现细节。",
-    "",
-    `日期：${input.dateLabel}`,
-    "",
-    "输出 JSON 结构：",
-    JSON.stringify({
-      title: "日记标题",
-      summary: "今天我和她之间能从原文读到的事、情绪如何流动、有哪些未尽之事。",
-      source_message_ids: ["msg_x"]
-    }),
-    "",
-    "当天已有草稿（仅供参考，可重写；草稿里没有原文的细节不要沿用）：",
-    draftLines,
-    "",
-    "当天原始聊天：",
-    formatTranscript(input.messages) || "(无聊天记录)"
-  ].join("\n");
 }
 
 async function callDiaryWriterModel(
@@ -278,7 +273,8 @@ export async function runDiaryWriter(
 
   const existing = await getDailyLog(env.DB, { namespace, date: dateLabel });
   const existingDraft = existing ? { title: existing.title, summary: existing.summary } : null;
-  const prompt = buildDiaryWriterPrompt({ dateLabel, messages, existingDraft });
+  const speakers = await loadSpeakersForNamespace(env, namespace);
+  const prompt = buildDiaryWriterPrompt({ dateLabel, messages, existingDraft, speakers });
   const modelCall = await callDiaryWriterModel(env, prompt, {
     dateLabel,
     messageCount: messages.length
