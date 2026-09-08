@@ -20,9 +20,6 @@
       "recommended": true,
       "style": {
         "noNonNullAssertion": "warn"
-      },
-      "nursery": {
-        "noFloatingPromises": "warn"
       }
     }
   }
