@@ -104,19 +104,19 @@ test('gateway editor round-trips speaker names for dream writing', async () => {
     }
     if (path === '/api/gateway/config') {
       return {
-        identities: [{ slug: 'danjiu', namespace: 'default', userName: '咲咲', assistantName: '旦九', keys: ['CHATBOX_API_KEY'], models: ['*'] }]
+        identities: [{ slug: 'danjiu', namespace: 'default', userName: '小南', assistantName: '小北', keys: ['CHATBOX_API_KEY'], models: ['*'] }]
       };
     }
     if (path === '/api/gateway/env') return { groups: [], secrets: [] };
     return { data: [] };
   };
   await app.gwLoad();
-  assert.equal(app.gwIdentities[0].userName, '咲咲');
-  assert.equal(app.gwIdentities[0].assistantName, '旦九');
+  assert.equal(app.gwIdentities[0].userName, '小南');
+  assert.equal(app.gwIdentities[0].assistantName, '小北');
   await app.gwSave();
-  assert.equal(saved[0].identities[0].userName, '咲咲');
-  assert.equal(saved[0].identities[0].assistantName, '旦九');
-  assert.match(ADMIN_HTML, /用户叫什么,如 咲咲/);
+  assert.equal(saved[0].identities[0].userName, '小南');
+  assert.equal(saved[0].identities[0].assistantName, '小北');
+  assert.match(ADMIN_HTML, /用户叫什么,如 小南/);
 });
 
 test('top identity picker saves speaker names without wiping the rest of gateway config', async () => {
@@ -141,12 +141,12 @@ test('top identity picker saves speaker names without wiping the rest of gateway
     return { data: [] };
   };
   app.selectedIdentity = 'danjiu';
-  app.speakerUserName = '咲咲';
-  app.speakerAssistantName = '旦九';
+  app.speakerUserName = '小南';
+  app.speakerAssistantName = '小北';
   await app.saveSpeakers();
   assert.equal(saved[0].upstream.address, 'https://keep.test/v1');
-  assert.equal(saved[0].identities[0].userName, '咲咲');
-  assert.equal(saved[0].identities[0].assistantName, '旦九');
+  assert.equal(saved[0].identities[0].userName, '小南');
+  assert.equal(saved[0].identities[0].assistantName, '小北');
   assert.equal(saved[0].identities[0].models[0], '*opus*');
   assert.equal(saved[0].identities[1].slug, 'ningjiao');
   assert.equal(saved[0].identities[1].userName, undefined);

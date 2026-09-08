@@ -321,10 +321,10 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
           <p class="mt-1 text-[11px] leading-5 text-zinc-500">Dream、日记、周月卷、审核写记忆时只用这两个名字，不许写用户/助手。</p>
           <div class="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
             <label class="text-xs text-zinc-400">用户叫什么
-              <input x-model="speakerUserName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 咲咲">
+              <input x-model="speakerUserName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 小南">
             </label>
             <label class="text-xs text-zinc-400">助手叫什么
-              <input x-model="speakerAssistantName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 旦九；留空用路径名">
+              <input x-model="speakerAssistantName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 小北；留空用路径名">
             </label>
             <button type="button" @click="saveSpeakers()" :disabled="speakerBusy" class="tap h-11 rounded-2xl bg-coral px-4 text-sm font-semibold text-zinc-950 transition duration-150 ease-in-out active:bg-coral/80 disabled:opacity-60">保存名字</button>
           </div>
@@ -1051,8 +1051,8 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
                 <button type="button" @click="gwIdentities.splice(i, 1)" class="tap shrink-0 rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-500 transition hover:border-coral hover:text-zinc-100">移除</button>
               </div>
               <div class="grid grid-cols-2 gap-2">
-                <input x-model="idn.userName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="用户叫什么,如 咲咲">
-                <input x-model="idn.assistantName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="助手叫什么,如 旦九">
+                <input x-model="idn.userName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="用户叫什么,如 小南">
+                <input x-model="idn.assistantName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="助手叫什么,如 小北">
               </div>
               <p class="text-[11px] text-zinc-500">Dream、日记、周月卷、审核写记忆只用这两个名字。助手名留空则用路径名。顶部选择助手后也能填。</p>
               <input x-model="idn.modelsText" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="主模型,逗号分隔,如 anthropic/claude-opus-5, *fable*">
