@@ -679,10 +679,10 @@ test("judge does not archive a still-valid fact and rejects string booleans", ()
   } as MemoryCandidateRow, [{
     id: "msg_1", conversation_id: "c", namespace: "ns", role: "user",
     content: "改成这样", source: "test", created_at: "2026-09-06T00:00:00.000Z"
-  }], { userName: "咲咲", assistantName: "旦九" });
-  assert.match(named, /用户是咲咲，助手是旦九/);
-  assert.match(named, /\[msg_1\].*\[咲咲\]/);
-  assert.match(named, /咲咲用新内容明确修正了旧事实/);
+  }], { userName: "小南", assistantName: "小北" });
+  assert.match(named, /用户是小南，助手是小北/);
+  assert.match(named, /\[msg_1\].*\[小南\]/);
+  assert.match(named, /小南用新内容明确修正了旧事实/);
 });
 
 test("FTS id hits keep SQL binds aligned and still find the rows", async () => {

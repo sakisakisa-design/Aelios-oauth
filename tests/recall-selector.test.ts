@@ -101,12 +101,12 @@ test("named speakers replace user/assistant labels in the dream extract prompt",
   const prompt = buildDreamExtractPrompt(
     [{ id: "msg_1", conversation_id: "c", namespace: "default", role: "user", content: "卖掉那台车", source: "test", created_at: "2026-09-08T00:00:00.000Z" }],
     [],
-    { userName: "咲咲", assistantName: "旦九" }
+    { userName: "小南", assistantName: "小北" }
   );
-  assert.match(prompt, /用户是咲咲，助手是旦九/);
+  assert.match(prompt, /用户是小南，助手是小北/);
   assert.match(prompt, /禁止出现 user、用户、assistant、助手/);
-  assert.match(prompt, /\[msg_1\].*\[咲咲\]/);
-  assert.match(prompt, /咲咲确定了九月按原计划卖掉那台车/);
+  assert.match(prompt, /\[msg_1\].*\[小南\]/);
+  assert.match(prompt, /小南确定了九月按原计划卖掉那台车/);
   assert.doesNotMatch(prompt, /关于用户的记忆，优先写成“你……”/);
   assert.doesNotMatch(prompt, /\[用户\]/);
   assert.doesNotMatch(prompt, /我\(助手\)/);
@@ -131,13 +131,13 @@ test("dream digest uses speaker names in transcript and writing rules", () => {
     messages: [{ id: "msg_1", conversation_id: "c", namespace: "default", role: "assistant", content: "好", source: "test", created_at: "2026-09-08T00:00:00.000Z" }],
     existingMemories: [],
     hasMore: false,
-    speakers: { userName: "咲咲", assistantName: "旦九" }
+    speakers: { userName: "小南", assistantName: "小北" }
   });
-  assert.match(named, /关于用户用「咲咲……」/);
+  assert.match(named, /关于用户用「小南……」/);
   assert.match(named, /禁止出现 user、用户、assistant、助手/);
-  assert.match(named, /\[msg_1\].*\[旦九\]/);
+  assert.match(named, /\[msg_1\].*\[小北\]/);
   assert.doesNotMatch(named, /我=助手/);
-  assert.equal(formatTranscript([{ id: "m", conversation_id: "c", namespace: "default", role: "user", content: "hi", source: null, created_at: "t" }], { userName: "咲咲", assistantName: "旦九" }), "[m][t][咲咲] hi");
+  assert.equal(formatTranscript([{ id: "m", conversation_id: "c", namespace: "default", role: "user", content: "hi", source: null, created_at: "t" }], { userName: "小南", assistantName: "小北" }), "[m][t][小南] hi");
 });
 
 test("default ranks exact contextual snippets once and keeps speaker and conditions", async () => {

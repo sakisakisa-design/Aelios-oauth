@@ -41,11 +41,11 @@ test("named speakers replace 用户/助手 in the diary prompt", () => {
       created_at: "2026-08-27T12:00:00.000Z"
     }],
     existingDraft: null,
-    speakers: { userName: "咲咲", assistantName: "旦九" }
+    speakers: { userName: "小南", assistantName: "小北" }
   });
-  assert.match(prompt, /用户是咲咲，助手是旦九/);
-  assert.match(prompt, /\[msg_1\].*\[咲咲\]/);
-  assert.match(prompt, /咲咲今天显得累/);
+  assert.match(prompt, /用户是小南，助手是小北/);
+  assert.match(prompt, /\[msg_1\].*\[小南\]/);
+  assert.match(prompt, /小南今天显得累/);
   assert.doesNotMatch(prompt, /用「我」指代助手自己/);
 });
 
@@ -68,15 +68,15 @@ test("diary JSON keeps title/summary and reads source_message_ids", () => {
 });
 
 test("named speakers replace 用户/助手 in weekly and monthly rollups", () => {
-  const speakers = { userName: "咲咲", assistantName: "旦九" };
+  const speakers = { userName: "小南", assistantName: "小北" };
   const weekly = buildWeeklyRollupPrompt({
     week: "2026-W36",
     startDate: "2026-08-31",
     endDate: "2026-09-06",
-    dailyLogs: [{ date: "2026-09-01", title: "累", summary: "咲咲有点累。" }],
+    dailyLogs: [{ date: "2026-09-01", title: "累", summary: "小南有点累。" }],
     speakers
   });
-  assert.match(weekly, /用户是咲咲，助手是旦九/);
+  assert.match(weekly, /用户是小南，助手是小北/);
   assert.doesNotMatch(weekly, /我=助手/);
   const monthly = buildMonthlyRollupPrompt({
     month: "2026-09",

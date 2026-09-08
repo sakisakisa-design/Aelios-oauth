@@ -668,14 +668,14 @@ test("identity speaker names are optional, bounded, and used by the matching wri
   for (const bad of ["", " \n ", "n".repeat(33), "a\nb"]) {
     assert.throws(() => validateConfig({ ...config(), identities: [{ ...identity(), userName: bad }] }), /userName/);
   }
-  const named = { ...config(), identities: [{ ...identity(), userName: "咲咲", assistantName: "旦九" }] };
+  const named = { ...config(), identities: [{ ...identity(), userName: "小南", assistantName: "小北" }] };
   const saved = validateConfig(named);
-  assert.deepEqual(speakersForNamespace(saved, "partner-a"), { userName: "咲咲", assistantName: "旦九" });
+  assert.deepEqual(speakersForNamespace(saved, "partner-a"), { userName: "小南", assistantName: "小北" });
   assert.equal(speakersForNamespace(saved, "other"), null);
-  const slugFallback = validateConfig({ ...config(), identities: [{ ...identity(), userName: "咲咲" }] });
+  const slugFallback = validateConfig({ ...config(), identities: [{ ...identity(), userName: "小南" }] });
   assert.equal(speakersForNamespace(slugFallback, "partner-a")?.assistantName, "partner");
   assert.equal((await worker.fetch(request("/api/gateway/config", named, {}, "PUT"), env, ctx)).status, 200);
-  assert.deepEqual(JSON.parse((await run("/api/gateway/config")).text).identities[0].userName, "咲咲");
+  assert.deepEqual(JSON.parse((await run("/api/gateway/config")).text).identities[0].userName, "小南");
 });
 
 test("cross-space recall shares one budget, deduplicates and records provenance while writes stay in the new space", async () => {
