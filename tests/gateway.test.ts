@@ -24,7 +24,7 @@ function config(identities = [identity()]) {
 function setConfig(c: any) { env.GATEWAY_CONFIG = JSON.stringify(c); }
 beforeEach(() => {
   sqlite?.close(); sqlite = new DatabaseSync(":memory:");
-  for (const file of readdirSync("migrations").filter(f => f.endsWith(".sql")).sort()) {
+  for (const file of readdirSync("migrations").filter((f: string) => f.endsWith(".sql")).sort()) {
     try { sqlite.exec(readFileSync("migrations/" + file, "utf8")); }
     catch (error) {
       if (!String(error).includes("fts5")) throw error;
@@ -75,7 +75,7 @@ async function run(path: string, body?: any, headers?: any) {
   const text = await response.text(); await Promise.all(pending);
   return { response, text };
 }
-function count(table: string) { return sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()!.n; }
+function count(table: string) { return (sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get() as any).n; }
 function precious(namespace: string, content: string) {
   const id = `${namespace}-${content.slice(0, 24)}`;
   sqlite.prepare("INSERT INTO precious (id, namespace, content, created_at) VALUES (?, ?, ?, ?)").run(id, namespace, content, "2026-09-06");
@@ -163,7 +163,7 @@ test("wecom envelopes recall on inner speech; recap turns skip recall and storag
   assert.doesNotMatch(wecomPatch, /086923c2648ccdfdb83072c64717dc35|番茄炒蛋/);
   assert.equal(queue[0].kind, "human");
   assert.equal(queue[0].userText, "我们喜欢什么？");
-  const afterWecom = sqlite.prepare("SELECT count(*) AS n FROM messages").get()!.n as number;
+  const afterWecom = (sqlite.prepare("SELECT count(*) AS n FROM messages").get() as any).n as number;
 
   const recap = "<recap>\nUser stepped away; returning. Recap: <40 words.";
   const recapRes = await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: recap }] });
@@ -174,7 +174,7 @@ test("wecom envelopes recall on inner speech; recap turns skip recall and storag
   assert.equal(queue[1].kind, "auxiliary");
   assert.equal(queue[1].userText, "");
   await persistExchange(env, queue[1]);
-  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM messages").get()!.n, afterWecom);
+  assert.equal((sqlite.prepare("SELECT count(*) AS n FROM messages").get() as any).n, afterWecom);
   const stored = sqlite.prepare("SELECT content FROM messages").all() as { content: string }[];
   assert.ok(stored.every((row) => !/User stepped away|<recap>/i.test(row.content)));
 });
@@ -319,7 +319,7 @@ test("auxiliary and incomplete replies do not become Dream sources", async () =>
   await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: "Generate title" }] }, { "x-aelios-purpose": "auxiliary" });
   await persistExchange(env, queue[0]); assert.equal(count("messages"), 0);
   await persistExchange(env, { ...queue[0], id: "incomplete", kind: "human", userText: "real question", assistantText: "half reply", completion: "incomplete" });
-  assert.equal(count("messages"), 1); assert.equal(sqlite.prepare("SELECT role FROM messages").get()!.role, "user");
+  assert.equal(count("messages"), 1); assert.equal((sqlite.prepare("SELECT role FROM messages").get() as any).role, "user");
 });
 test("retry hashes ignore key order but distinguish later repeated words and sessions", async () => {
   const a = { model: "partner", messages: [{ role: "user", content: "Hi" }] };
@@ -465,7 +465,7 @@ test("Queue failure falls back to D1; successful duplicate cannot overwrite comp
   await dispatchExchange(env, queue[0]);
   await persistExchange(env, { ...queue[0], assistantText: "different retry" });
   assert.equal(count("gateway_exchanges"), 1); assert.equal(count("messages"), 2);
-  assert.equal(sqlite.prepare("SELECT assistant_text FROM gateway_exchanges").get()!.assistant_text, "你好，记住了。");
+  assert.equal((sqlite.prepare("SELECT assistant_text FROM gateway_exchanges").get() as any).assistant_text, "你好，记住了。");
 });
 
 test("a topical follow-up does not inject the previous relationship precious", async () => {
@@ -694,8 +694,8 @@ test("cross-space recall shares one budget, deduplicates and records provenance 
   assert.equal((prompt.match(/^-/gm) || []).length, 1);
   assert.equal(queue[0].namespace, "new");
   await persistExchange(env, queue[0]);
-  assert.deepEqual(sqlite.prepare("SELECT DISTINCT namespace FROM messages").all().map(r => r.namespace), ["new"]);
-  const trace = JSON.parse(sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get()!.payload_json as string);
+  assert.deepEqual(sqlite.prepare("SELECT DISTINCT namespace FROM messages").all().map((r: any) => r.namespace), ["new"]);
+  const trace = JSON.parse((sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get() as any).payload_json as string);
   assert.deepEqual(trace.read_namespaces, ["old", "shared"]);
   assert.equal(trace.write_namespace, "new");
   assert.deepEqual([...new Set(trace.items.map((x: any) => x.namespace))], ["old"]);
@@ -730,7 +730,7 @@ test("one unavailable space does not suppress healthy recall; trace lists the fa
     return statement;
   } };
   assert.equal((await run("/v1/chat/completions", { model: "partner", messages: [{ role: "user", content: "Cloudflare" }] })).response.headers.get("x-aelios-memory"), "injected");
-  const trace = JSON.parse(sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get()!.payload_json as string);
+  const trace = JSON.parse((sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get() as any).payload_json as string);
   assert.deepEqual(trace.failed_namespaces, ["broken"]);
 });
 

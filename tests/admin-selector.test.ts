@@ -44,10 +44,11 @@ test('read spaces remain individually selectable and survive a reload', async ()
 });
 
 test('legacy and explicitly chosen custom spaces are preserved', async () => {
-  for (const prefs of [
+  const cases: Record<string, string>[] = [
     { 'aelios.admin.namespace': 'old-library' },
     { 'aelios.admin.namespace': 'default', 'aelios.admin.identity': '' }
-  ]) {
+  ];
+  for (const prefs of cases) {
     const { app } = panel(prefs);
     await app.init();
     assert.equal(app.namespace, prefs['aelios.admin.namespace']);
