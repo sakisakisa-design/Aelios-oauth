@@ -967,6 +967,35 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
       <section x-show="page === 'settings'" class="space-y-4">
         <h1 class="text-2xl font-semibold">设置</h1>
         <article class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold">为什么想起这件事</h2>
+            <button type="button" @click="loadRecallHistory()" :disabled="recallHistoryLoading || !selectedIdentity" class="tap rounded-2xl border border-zinc-800 px-3 text-xs disabled:opacity-40">刷新记录</button>
+          </div>
+          <p class="mt-2 text-xs text-zinc-400">查看顶部所选助手最近 20 次召回，记录按助手区分，不随单个召回空间合并。</p>
+          <p x-show="!selectedIdentity" class="mt-2 text-xs text-zinc-400">请先在顶部选择一位助手。</p>
+          <div aria-live="polite">
+            <p x-show="recallHistoryLoading" class="mt-2 text-xs text-zinc-400">读取中…</p>
+            <p x-show="recallHistoryError" class="mt-2 text-xs text-coral" x-text="recallHistoryError"></p>
+            <p x-show="selectedIdentity && !recallHistoryLoading && !recallHistoryError && !recallHistory.length" class="mt-2 text-xs text-zinc-500">还没有召回记录。</p>
+          </div>
+          <template x-for="record in recallHistory" :key="record.id">
+            <details class="mt-3 rounded-xl border border-zinc-800 p-3">
+              <summary class="cursor-pointer text-sm" x-text="record.query || '本轮召回'"></summary>
+              <p class="mt-2 text-xs text-zinc-400" x-text="fmt(record.created_at) + ' · ' + recallStatusLabel(record.selection && record.selection.status) + ' · 注入 ' + (record.injected || 0) + ' 条'"></p>
+              <p class="mt-1 text-xs text-zinc-400" x-text="recallReasonLabel(record.selection && record.selection.reason)"></p>
+              <p class="mt-1 text-xs text-zinc-400" x-show="record.selection && record.selection.threshold != null" x-text="record.selection ? '分数下限 ' + record.selection.threshold + (record.selection.elapsed_ms != null ? ' · 重排与筛选 ' + record.selection.elapsed_ms + ' ms' : '') + ' · 分数不是正确率' : ''"></p>
+              <template x-for="(decision, i) in (record.decisions || [])" :key="i">
+                <div class="mt-2 border-t border-zinc-800 pt-2">
+                  <p class="text-xs" :class="decision.injected ? 'text-coral' : 'text-zinc-400'" x-text="(decision.injected ? '已选 · ' : '未选 · ') + recallReasonLabel(decision.reason)"></p>
+                  <p class="mt-1 text-xs text-zinc-400" x-show="decision.score != null" x-text="decision.score != null ? '相关分数 ' + Number(decision.score).toFixed(3) : ''"></p>
+                  <p class="mt-1 whitespace-pre-wrap text-sm" x-text="decision.excerpt || ''"></p>
+                  <p class="mt-1 break-all text-[11px] text-zinc-500" x-text="(decision.namespace || '') + ' / ' + (decision.id || decision.kind || '')"></p>
+                </div>
+              </template>
+            </details>
+          </template>
+        </article>
+        <article class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
           <button type="button" @click="toggleTheme()" class="tap mb-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-800 bg-[#0a0a0b] px-4 text-sm text-zinc-100 transition duration-150 ease-in-out hover:border-coral">
             <i :data-lucide="theme === 'light' ? 'moon' : 'sun'" class="h-4 w-4"></i>
             <span x-text="theme === 'light' ? '切到夜间模式' : '切到白天模式'"></span>
@@ -1041,6 +1070,7 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
                     <div class="mt-2">
                       <label class="block text-xs text-zinc-400" x-text="item.label"></label>
                       <input x-model="item.value" :placeholder="item.deployed || '未设置,用代码默认值'" :title="item.name" class="mt-1 h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral">
+                      <p x-show="item.hint" class="mt-1 text-[11px] leading-5 text-zinc-500" x-text="item.hint || ''"></p>
                     </div>
                   </template>
                 </fieldset>
@@ -1105,6 +1135,10 @@ function memoryAdmin() {
     gwGroups: [],
     gwSecrets: [],
     gwBusy: false,
+    recallHistory: [],
+    recallHistoryLoading: false,
+    recallHistoryError: '',
+    recallHistoryRevision: 0,
     memoryIdentities: [],
     selectedIdentity: localStorage.getItem('aelios.admin.identity') || '',
     identityPreferenceReady: localStorage.getItem('aelios.admin.identity') !== null,
@@ -1229,6 +1263,8 @@ function memoryAdmin() {
       await this.reloadAll();
     },
     clearSpaceData() {
+      this.recallHistoryRevision += 1;
+      this.recallHistory = []; this.recallHistoryError = ''; this.recallHistoryLoading = false;
       this.boot = {}; this.stats = {};
       this.todayMessages = []; this.candidates = []; this.memories = [];
       this.precious = []; this.glossary = [];
@@ -1315,6 +1351,33 @@ function memoryAdmin() {
         if (self.toast === message) self.toast = '';
       }, 2400);
     },
+    recallStatusLabel(status) {
+      return { reranked: '原文重排＋规则', lexical: '词面兜底', empty: '没有候选', error: '本轮未注入' }[status] || '旧版召回';
+    },
+    recallReasonLabel(reason) {
+      const labels = { no_safe_window: '没有能完整保留局部上下文的短片段', rerank_selected: '原文片段相关，已通过规则筛选', lexical_fallback_selected: '重排不可用，改用词面命中', below_rerank_threshold: '相关分数不足，不凑数', duplicate_source: '同一来源本次只占一个位置', duplicate_fact: '同一事实已选更高分版本', impression_not_evidence: '日记印象不当作事实证据', latest_requires_evidence: '要排最近一次，相关分做不到，本轮不注入', reranker_timeout: '原文重排超时，已回落词面', reranker_missing_binding: '缺少 Worker AI 绑定，已回落词面', reranker_disabled: '重排已关闭，已回落词面', reranker_unsupported_model: '请配置 Workers AI 重排模型', reranker_invalid_response: '重排分数无效，已回落词面', reranker_failed: '原文重排失败，已回落词面', duplicate_content: '同一内容只保留一份', already_visible: '聊天历史里已经有了', item_budget: '已选出更合适的记忆', candidate_budget: '超过本次候选数量', empty_content: '没有可用正文' };
+      if (labels[reason]) return labels[reason];
+      return reason || '';
+    },
+    async loadRecallHistory() {
+      const revision = ++this.recallHistoryRevision;
+      const spaceRevision = this.spaceRevision;
+      const identity = this.selectedIdentity;
+      const base = this.base(), key = this.apiKey;
+      this.recallHistory = []; this.recallHistoryError = ''; this.recallHistoryLoading = false;
+      if (!identity || !this.apiKey.trim()) return;
+      this.recallHistoryLoading = true;
+      const current = () => revision === this.recallHistoryRevision && spaceRevision === this.spaceRevision &&
+        identity === this.selectedIdentity && base === this.base() && key === this.apiKey;
+      try {
+        const data = await this.request('/api/gateway/recalls?identity=' + encodeURIComponent(identity));
+        if (current()) this.recallHistory = data.items || [];
+      } catch (error) {
+        if (current()) this.recallHistoryError = '召回记录读取失败：' + error.message;
+      } finally {
+        if (current()) this.recallHistoryLoading = false;
+      }
+    },
     async gwLoad() {
       if (this.gwBusy) return;
       this.gwBusy = true;
@@ -1380,6 +1443,7 @@ function memoryAdmin() {
     async reloadAll() {
       this.savePrefs();
       var tasks = [this.loadBoot(), this.loadCandidates(), this.loadMemories()];
+      if (this.page === 'settings') tasks.push(this.loadRecallHistory());
       if (this.page === 'diary') tasks.push(this.loadDiary());
       if (this.page === 'more' && this.moreView === 'world') tasks.push(this.loadWorldFacts());
       if (this.page === 'dream') {
@@ -1819,6 +1883,7 @@ function memoryAdmin() {
         return;
       }
       this.page = id;
+      if (id === 'settings') { this.loadRecallHistory(); if (!this.gwGroups.length) this.gwLoad(); }
       if (id === 'review') this.loadCandidates();
       if (id === 'memory') this.loadMemories();
       if (id === 'diary') this.loadDiary();

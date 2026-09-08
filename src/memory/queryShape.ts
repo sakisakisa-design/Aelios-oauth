@@ -93,7 +93,7 @@ export function tokenizeForIndex(text: string, limit = 80): string[] {
 }
 
 export function isEvidenceQuery(query: string): boolean {
-  return /暗号|口令|原话|说过|怎么说的|哪天|几号|什么时候|何时|日期|passphrase|said|quote|when did|what did/i.test(query);
+  return /最近一次|最后一次|上一次|last time|most recent|暗号|口令|原话|说过|怎么说的|哪天|几号|什么时候|何时|日期|passphrase|said|quote|when did|what did/i.test(query);
 }
 
 export function isTemporalQuery(query: string): boolean {

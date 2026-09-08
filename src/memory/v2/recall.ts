@@ -354,6 +354,11 @@ export interface RecallHit {
   // E 轴: 亲笔署名与响应倾向 (0011)。authored 命中吃排序加成，供面板观察。
   authored_by?: string | null;
   response_tendency?: string | null;
+  // Keep recording time separate from effective/event time for evidence selection.
+  recorded_date?: string | null;
+  event_date?: string | null;
+  fact_key?: string | null;
+  source_message_ids?: string[];
   // LMC-5 Y 轴 (additive, only when RELATION_EXPANSION on and hit came via edge)
   relation?: RelationExpansionMeta;
   contradicted_by?: string[];
@@ -470,7 +475,11 @@ export async function runRecall(env: Env, input: RecallInput): Promise<RecallRes
       backed: m.backed,
       kind: "memory" as const,
       authored_by: authored,
-      response_tendency: m.response_tendency ?? null
+      response_tendency: m.response_tendency ?? null,
+      recorded_date: m.created_at ?? null,
+      event_date: m.valid_as_of ?? null,
+      fact_key: m.fact_key ?? null,
+      source_message_ids: m.source_message_ids
     };
   });
 

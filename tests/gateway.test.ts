@@ -9,7 +9,9 @@ import { appendMemory, classifyTurn, canonical } from "../src/gateway/protocol";
 import { catalogUrl, resolveUpstream, routeFor, toolCacheRejections } from "../src/gateway/upstream";
 import { OutputCollector, observeResponse, persistExchange, prepareExchange, dispatchExchange } from "../src/gateway/record";
 
-// Test actual production modules and SQL, replacing only the external HTTP call.
+import { lexicalOverlapScore, shapeRecallQuery } from "../src/memory/queryShape";
+
+// Test production modules and SQL with deterministic HTTP and Workers AI doubles.
 (crypto.subtle as any).timingSafeEqual = (a: Uint8Array, b: Uint8Array) => timingSafeEqual(a, b);
 let sqlite: DatabaseSync;
 let db: any, env: any, ctx: any;
@@ -45,6 +47,11 @@ beforeEach(() => {
   ctx = { waitUntil(p: Promise<unknown>) { pending.push(p); } };
   env = { DB: db, CHATBOX_API_KEY: "owner-key", IM_API_KEY: "im-key", MEMORY_MCP_API_KEY: "mcp-key",
     CLOUDFLARE_API_TOKEN: "cf-token",
+    AI: { async run(model: string, data: any) {
+      if (!model.includes("reranker")) throw new Error("embedding unavailable in test");
+      return { response: data.contexts.map((c: any, id: number) => ({ id,
+        score: lexicalOverlapScore(c.text, shapeRecallQuery({ query: data.query }).lexicalTokens) > 0 ? 0.9 : 0.01 })) };
+    } },
     MEMORY_QUEUE: { async send(e: any) { queue.push(e); } } };
   globalThis.fetch = async (url: any, init: any) => {
     if (String(url).endsWith("/models")) {
@@ -83,7 +90,7 @@ test("migrations, native chat recall, namespace isolation, original text and Que
   assert.equal(calls[0].url, "https://upstream.test/ai/v1/chat/completions");
   assert.equal(calls[0].headers.authorization, "Bearer cf-token");
   assert.match(calls[0].query.messages[0].content, /喜欢 Cloudflare/);
-  assert.match(calls[0].query.messages[0].content, /- 喜欢 Cloudflare/);
+  assert.match(calls[0].query.messages[0].content, /相关旧事.*喜欢 Cloudflare/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /番茄炒蛋/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /other identity/);
   assert.doesNotMatch(calls[0].query.messages[0].content, /\[\{"kind"/);
@@ -329,7 +336,7 @@ test("main-model whitelist gates recall and recording; other models pass through
     run("/v1/chat/completions", { model, messages: [{ role: "user", content: text }] });
   await ask("partner");
   assert.equal(calls[0].query.model, "partner");
-  assert.match(JSON.stringify(calls[0].query.messages), /- 喜欢 Cloudflare/);
+  assert.match(JSON.stringify(calls[0].query.messages), /相关旧事.*喜欢 Cloudflare/);
   // Basename match: a glob pattern sees the model name with or without its author prefix.
   const opus = await ask("anthropic/claude-opus-4-6");
   assert.equal(opus.response.headers.get("x-aelios-memory"), "injected");
@@ -519,8 +526,8 @@ test("please-remember writes the original words into long-term memory", async ()
       { role: "user", content: "调试暗号是什么？" }
     ]
   });
-  assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
-  assert.match(JSON.stringify(calls[1].query.messages), /- 调试暗号是芝麻开门/);
+  assert.equal(ask.response.headers.get("x-aelios-memory"), "empty");
+  assert.doesNotMatch(JSON.stringify(calls[1].query.messages), /Aelios 记忆/);
 });
 
 test("evidence recall keeps a distilled memory instead of repeating its source quote", async () => {
@@ -534,7 +541,7 @@ test("evidence recall keeps a distilled memory instead of repeating its source q
   });
   assert.equal(ask.response.headers.get("x-aelios-memory"), "injected");
   const injected = JSON.stringify(calls[1].query.messages);
-  assert.match(injected, /- 调试暗号是芝麻开门/);
+  assert.match(injected, /回答旧事：「调试暗号是芝麻开门」/);
   assert.doesNotMatch(injected, /请记住调试暗号|用户: 「/);
 });
 
@@ -666,17 +673,19 @@ test("cross-space recall shares one budget, deduplicates and records provenance 
   assert.equal(response.status, 200);
   const prompt = calls[0].query.messages[0].content;
   assert.match(prompt, /Cloudflare old memory/);
-  assert.match(prompt, /Cloudflare shared memory/);
+  assert.doesNotMatch(prompt, /Cloudflare shared memory/);
   assert.doesNotMatch(prompt, /private memory|not in read list/);
-  assert.equal((prompt.match(/Cloudflare duplicate/g) || []).length, 1);
-  assert.equal((prompt.match(/^-/gm) || []).length, 3);
+  assert.equal((prompt.match(/Cloudflare duplicate/g) || []).length, 0);
+  assert.equal((prompt.match(/^-/gm) || []).length, 1);
   assert.equal(queue[0].namespace, "new");
   await persistExchange(env, queue[0]);
   assert.deepEqual(sqlite.prepare("SELECT DISTINCT namespace FROM messages").all().map(r => r.namespace), ["new"]);
   const trace = JSON.parse(sqlite.prepare("SELECT payload_json FROM memory_events WHERE event_type = 'recall_explain'").get()!.payload_json as string);
   assert.deepEqual(trace.read_namespaces, ["old", "shared"]);
   assert.equal(trace.write_namespace, "new");
-  assert.deepEqual([...new Set(trace.items.map((x: any) => x.namespace))].sort(), ["old", "shared"]);
+  assert.deepEqual([...new Set(trace.items.map((x: any) => x.namespace))], ["old"]);
+  assert.ok(trace.decisions.some((x: any) => x.namespace === "shared" && x.reason === "duplicate_content"));
+  assert.ok(trace.decisions.some((x: any) => x.namespace === "shared" && x.reason === "item_budget"));
 });
 
 test("two identities can share a space and disabled recall still records original utterances", async () => {
@@ -770,4 +779,83 @@ test("memory plus thinking survives the entire simulated tool loop with upstream
   assert.equal(third.response.headers.get("x-aelios-memory"), "injected");
   assert.equal(calls[2].query.messages.at(-1).content[0].type, "tool_result");
   assert.deepEqual(calls[2].query.messages.slice(0, -1), mixed.messages.slice(0, -1));
+});
+
+test("reranked recall is wired across sources and stays out of conversation storage", async () => {
+  await run("/v1/chat/completions", {model:"partner",messages:[{role:"user",content:"请记住你喜欢下雨天喝热豆浆"}]});
+  precious("partner-a", "下雨天，你答应永远找到旦九。");
+  precious("partner-b", "下雨天其他身份的秘密。");
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"下雨了，早餐吃点什么呢"}]});
+  assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  const prompt=calls.at(-1).query.messages[0].content;
+  assert.match(prompt,/热豆浆/);assert.doesNotMatch(prompt,/永远|秘密|event_key/);
+  assert.equal((prompt.match(/^- /gm)||[]).length,1);
+  const history=await run("/api/gateway/recalls?identity=partner");
+  const records=JSON.parse(history.text).items;
+  const trace=records.find((r:any)=>r.selection?.status==="reranked");
+  assert.ok(trace.decisions.some((d:any)=>d.injected&&d.excerpt.includes("热豆浆")));
+});
+
+test("reranker failure continues the chat with a lexical fallback", async () => {
+  precious("partner-a","你喜欢雨天喝热豆浆。");
+  env.AI={async run(){throw new Error("down");}};
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"雨天喝什么"}]});
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  assert.match(calls.at(-1).query.messages[0].content,/热豆浆/);
+  const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
+  assert.equal(rows[0].selection.status,"lexical");assert.equal(rows[0].selection.reason,"reranker_failed");
+  assert.equal((await run("/api/gateway/recalls?identity=partner",undefined,{authorization:"Bearer im-key"})).response.status,401);
+  assert.equal((await run("/api/gateway/recalls?identity=missing")).response.status,400);
+});
+
+test("recall history filters identities sharing the same write space", async () => {
+  setConfig({...config(),identities:[identity(),{...identity(),slug:"other"}]});
+  precious("partner-a","你喜欢 Cloudflare。");
+  await run("/partner/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 怎么样"}]});
+  await run("/other/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 好用吗"}]});
+  const rows=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items;
+  assert.equal(rows.length,1);assert.equal(rows[0].identity,"partner");
+});
+
+test('retired gateway page redirects to the unified admin without reading credentials or configuration', async () => {
+  const response = await worker.fetch(new Request('https://aelios.test/admin/gateway'), {} as any, ctx);
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/admin');
+  assert.equal(await response.text(), '');
+});
+
+test("default recall batches ordinary memories and precious across spaces once, and exposes scores", async () => {
+  setConfig({...config(),identities:[{...identity(),readNamespaces:["partner-a","shared"]}]});
+  precious("shared","Cloudflare 还有一条珍贵回忆。");
+  precious("private","Cloudflare 其他空间的秘密。");
+  sqlite.prepare(`INSERT INTO memories (id, namespace, type, content, importance, confidence, created_at, updated_at)
+    VALUES ('rank-fact', 'partner-a', 'fact', 'Cloudflare 是我们用的记忆平台。', 1, 1, '2026-09-06', '2026-09-06')`).run();
+  let rankingCalls=0;
+  env.AI.run=async(model:string,data:any)=>{
+    if(!model.includes("reranker"))throw new Error("embedding unavailable in test");
+    rankingCalls++;
+    assert.ok(data.contexts.some((c:any)=>c.text.includes("记忆平台")));
+    assert.ok(data.contexts.some((c:any)=>c.text.includes("珍贵回忆")));
+    assert.ok(data.contexts.every((c:any)=>!c.text.includes("秘密")));
+    return {response:data.contexts.map((c:any,id:number)=>({id,score:c.text.includes("记忆平台")?0.92:0.2}))};
+  };
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 平台"}]});
+  assert.equal(result.response.status,200);assert.equal(rankingCalls,1);assert.equal(calls.length,1);
+  assert.match(calls[0].query.messages[0].content,/记忆平台/);
+  assert.doesNotMatch(calls[0].query.messages[0].content,/珍贵回忆|秘密|rank-fact|0.92/);
+  const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
+  assert.equal(trace.selection.status,"reranked");assert.equal(trace.selection.threshold,0.25);
+  assert.ok(Number.isFinite(trace.selection.elapsed_ms));
+  assert.ok(trace.decisions.some((d:any)=>d.score===0.92&&d.injected));
+  assert.ok(trace.decisions.some((d:any)=>d.score===0.2&&!d.injected));
+  assert.equal(queue.length,1);assert.equal(queue[0].userText,"Cloudflare 平台");
+});
+test("Workers AI failure continues the chat with a lexical fallback", async () => {
+  precious("partner-a","你喜欢 Cloudflare。");
+  env.AI.run=async()=>{throw new Error("not available");};
+  const result=await run("/v1/chat/completions",{model:"partner",messages:[{role:"user",content:"Cloudflare 好用吗"}]});
+  assert.equal(result.response.status,200);assert.equal(result.response.headers.get("x-aelios-memory"),"injected");
+  assert.match(calls[0].query.messages[0].content,/Cloudflare/);
+  const trace=JSON.parse((await run("/api/gateway/recalls?identity=partner")).text).items[0];
+  assert.equal(trace.selection.status,"lexical");assert.equal(trace.selection.reason,"reranker_failed");assert.equal(queue.length,1);
 });

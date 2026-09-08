@@ -1,15 +1,18 @@
 import type { Env } from "../types";
 
-// Everything here is editable from /admin/gateway, so Worker settings only needs the API key.
+// Everything here is editable from /admin, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
+  { group: "记忆召回", name: "RECALL_RERANK_MIN_SCORE", label: "原文重排分数下限", hint: "默认 0.25，低于此值不注入。只是初始值，请结合下方召回记录调整；分数不是正确率，不同模型不可直接比较" },
+  { group: "记忆召回", name: "RECALL_RERANK_TIMEOUT_MS", label: "原文重排最多等多久（毫秒）", hint: "默认 1500，上限 5000。超时改走词面 top-1，聊天继续；迟到结果会丢弃，但 CF 调用可能仍会完成并计费" },
+  { group: "记忆召回", name: "MEMORY_RERANKER_MODEL", label: "原文重排模型", hint: "默认 @cf/baai/bge-reranker-base，通过 Worker 的 AI 绑定调用。所有来源一次批量打分，不生成记忆正文。失败时回落词面命中，不补调 LLM" },
   { group: "记忆召回", name: "MEMORY_FILTER_MAX_OUTPUT", label: "每次注入几条记忆", hint: "日常建议 1–2 条；显式搜索不受影响。0 表示本轮不注入" },
-  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "每条记忆最长字数", hint: "默认 240，只影响自动注入，显式搜索仍返回完整内容和 ID" },
+  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CONTENT_CHARS", label: "显式搜索的重排文本长度", hint: "自动注入使用不超过 400 字的连续原文窗口，不受此项控制；显式搜索返回完整内容和 ID" },
   { group: "记忆召回", name: "MEMORY_TOP_K", label: "先从向量库取多少条", hint: "取回来再交给重排模型挑" },
-  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CANDIDATES", label: "送进重排的条数" },
+  { group: "记忆召回", name: "MEMORY_FILTER_MAX_CANDIDATES", label: "每空间普通记忆候选数", hint: "自动召回最终跨来源、跨空间合计最多 16 条候选，每条最多 4 个片段" },
   { group: "记忆召回", name: "MEMORY_MIN_SCORE", label: "相似度下限", hint: "只当垃圾闸，精度靠重排。调高会漏掉换了说法的记忆" },
   { group: "记忆召回", name: "MEMORY_FILTER_MIN_SCORE", label: "重排前相似度下限" },
-  { group: "记忆召回", name: "MEMORY_INJECT_DECAY_FACTOR", label: "刚注入过的记忆降权", hint: "30 分钟内注入过的排到队尾。填 1 关闭" },
+  { group: "记忆召回", name: "MEMORY_INJECT_DECAY_FACTOR", label: "刚注入过的记忆降权", hint: "降低近期注入记忆的候选排序；最终原文重排仍按相关性排序。填 1 关闭" },
   { group: "记忆召回", name: "MEMORY_AUTHORED_BOOST", label: "亲笔记忆加成", hint: "自己写的记忆排前面。填 1 关闭" },
 
   { group: "Dream 与日记", name: "DREAM_MODEL", label: "Dream 用的模型" },
@@ -25,7 +28,6 @@ export const SETTINGS: SettingSpec[] = [
   { group: "数据留存", name: "MESSAGES_RETENTION_DAYS", label: "原始对话保留天数", hint: "Dream 抽完记忆后，原文留几天" },
 
   { group: "模型与线路", name: "AI_GATEWAY_ID", label: "默认 AI Gateway ID", hint: "会写进上游 URL。自定义 Provider 和动态路由必须填对，不能只靠账户默认 Gateway" },
-  { group: "模型与线路", name: "MEMORY_RERANKER_MODEL", label: "记忆重排模型" },
   { group: "模型与线路", name: "VISION_MODEL", label: "看图模型" },
   { group: "模型与线路", name: "CHAT_MODEL", label: "导盲犬入口的模型", hint: "只给 /v1/guide-dog 用，聊天走网关身份" },
   { group: "模型与线路", name: "PUBLIC_MODEL_NAME", label: "导盲犬对外显示的模型名" },
@@ -39,6 +41,7 @@ export const SETTINGS: SettingSpec[] = [
   { group: "高级 · 改了要重建向量库", name: "VECTORIZE_INDEX_NAME", label: "Vectorize 索引名" }
 ];
 export const SETTING_NAMES = new Set(SETTINGS.map(s => s.name));
+const RETIRED_SETTINGS = new Set(["RECALL_SELECTOR_MODEL", "RECALL_SELECTOR_TIMEOUT_MS"]);
 
 // Credentials stay Worker Secrets; the page only reports whether they exist.
 export const SECRET_SPECS: { name: string; label: string }[] = [
@@ -56,6 +59,7 @@ export function validateSettings(value: unknown): Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("settings must be an object");
   const out: Record<string, string> = {};
   for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (RETIRED_SETTINGS.has(name)) continue;
     if (!SETTING_NAMES.has(name)) throw new Error(`Unknown setting: ${name}`);
     if (typeof raw !== "string") throw new Error(`${name}: settings values must be strings`);
     const trimmed = raw.trim();

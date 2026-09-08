@@ -49,7 +49,7 @@ function parseGatewayHost(address: string): { accountId: string } | null {
 
 export function resolveUpstream(env: Env, config: GatewayConfig): ResolvedUpstream {
   const address = configuredAddress(env, config);
-  if (!address) throw new Error("Upstream not configured. Set the CF account in /admin/gateway.");
+  if (!address) throw new Error("Upstream not configured. Set the CF account in /admin.");
   const trimmed = stripAddress(address);
   const gatewayId = resolveGatewayId(env, trimmed);
 

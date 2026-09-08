@@ -1,5 +1,5 @@
 import type { Env, MemoryApiRecord } from "../types";
-import { sanitizeSummaryContent } from "../utils/sanitize";
+import { cleanMessageText } from "../utils/sanitize";
 
 const DEFAULT_WORKERS_AI_RERANKER_MODEL = "workers-ai/@cf/baai/bge-reranker-base";
 
@@ -91,7 +91,7 @@ function normalizeForDedupe(text: string): string {
 function prepareCandidates(env: Env, memories: MemoryApiRecord[]): MemoryApiRecord[] {
   const minScore = getFilterMinScore(env);
   const eligible = memories.flatMap((memory): MemoryApiRecord[] => {
-    const content = sanitizeSummaryContent(memory.content);
+    const content = cleanMessageText(memory.content);
     if (!content) return [];
     if (!memory.pinned && typeof memory.score === "number" && memory.score < minScore) return [];
     return [{ ...memory, content }];
