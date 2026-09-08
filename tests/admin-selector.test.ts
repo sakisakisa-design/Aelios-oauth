@@ -94,6 +94,31 @@ test('saving the first token loads identities instead of locking the panel to de
   assert.equal(app.namespace, 'danjiu');
 });
 
+test('gateway editor round-trips speaker names for dream writing', async () => {
+  const { app } = panel();
+  const saved: any[] = [];
+  app.request = async (path: string, options: any = {}) => {
+    if (path === '/api/gateway/config' && options.method === 'PUT') {
+      saved.push(JSON.parse(options.body));
+      return { identities: 1 };
+    }
+    if (path === '/api/gateway/config') {
+      return {
+        identities: [{ slug: 'danjiu', namespace: 'default', userName: '咲咲', assistantName: '旦九', keys: ['CHATBOX_API_KEY'], models: ['*'] }]
+      };
+    }
+    if (path === '/api/gateway/env') return { groups: [], secrets: [] };
+    return { data: [] };
+  };
+  await app.gwLoad();
+  assert.equal(app.gwIdentities[0].userName, '咲咲');
+  assert.equal(app.gwIdentities[0].assistantName, '旦九');
+  await app.gwSave();
+  assert.equal(saved[0].identities[0].userName, '咲咲');
+  assert.equal(saved[0].identities[0].assistantName, '旦九');
+  assert.match(ADMIN_HTML, /用户叫什么,如 咲咲/);
+});
+
 test('recall history in admin follows the selected assistant and keeps empty/error explanations', async () => {
   const { app } = panel();
   await app.init();

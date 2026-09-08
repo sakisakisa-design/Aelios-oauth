@@ -1030,13 +1030,18 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
             <label class="text-xs text-zinc-400">助手</label>
             <button type="button" @click="gwAdd()" class="tap rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 transition duration-150 ease-in-out hover:border-coral hover:text-zinc-100">+ 添加助手</button>
           </div>
-          <p class="mt-1 text-[11px] text-zinc-500">名字即地址路径段;主模型支持 * 通配,只有主模型有记忆、进 Dream。</p>
+          <p class="mt-1 text-[11px] text-zinc-500">名字即地址路径段;主模型支持 * 通配,只有主模型有记忆、进 Dream。用户名和助手名给 Dream 写记忆用,只许写名字,不许写用户/助手。</p>
           <template x-for="(idn, i) in gwIdentities" :key="i">
             <div class="mt-2 space-y-2 rounded-2xl border border-zinc-800 bg-[#0a0a0b] p-3">
               <div class="flex items-center gap-2">
                 <input x-model="idn.slug" class="h-10 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="名字,如 coder">
                 <button type="button" @click="gwIdentities.splice(i, 1)" class="tap shrink-0 rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-500 transition hover:border-coral hover:text-zinc-100">移除</button>
               </div>
+              <div class="grid grid-cols-2 gap-2">
+                <input x-model="idn.userName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="用户叫什么,如 咲咲">
+                <input x-model="idn.assistantName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="助手叫什么,如 旦九">
+              </div>
+              <p class="text-[11px] text-zinc-500">Dream 写记忆只用这两个名字。助手名留空则用路径名。</p>
               <input x-model="idn.modelsText" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="主模型,逗号分隔,如 anthropic/claude-opus-5, *fable*">
               <input x-model="idn.namespace" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="写入空间,留空与名字同名">
               <input x-model="idn.readNamespacesText" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="召回空间,逗号分隔;留空只读写入空间;[] 不召回">
@@ -1388,6 +1393,8 @@ function memoryAdmin() {
         this.gwIdentities = (config.identities || []).map(function(idn) {
           return {
             slug: idn.slug || '',
+            userName: idn.userName || '',
+            assistantName: idn.assistantName || '',
             modelsText: (idn.models || []).join(', '),
             namespace: idn.namespace || '',
             readNamespacesText: idn.readNamespaces ? (idn.readNamespaces.length ? idn.readNamespaces.join(', ') : '[]') : '',
@@ -1404,7 +1411,7 @@ function memoryAdmin() {
       this.gwBusy = false;
     },
     gwAdd() {
-      this.gwIdentities.push({ slug: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '' });
+      this.gwIdentities.push({ slug: '', userName: '', assistantName: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '' });
     },
     async gwSave() {
       if (this.gwBusy) return;
@@ -1416,6 +1423,8 @@ function memoryAdmin() {
             keys: idn.keys,
             models: (idn.modelsText || '').split(/[,，\n]/).map(function(s) { return s.trim(); }).filter(Boolean)
           };
+          if ((idn.userName || '').trim()) out.userName = idn.userName.trim();
+          if ((idn.assistantName || '').trim()) out.assistantName = idn.assistantName.trim();
           if ((idn.namespace || '').trim()) out.namespace = idn.namespace.trim();
           const reads = (idn.readNamespacesText || '').trim();
           if (reads) out.readNamespaces = reads === '[]' ? [] : reads.split(/[,，\n]/).map(function(s) { return s.trim(); }).filter(Boolean);
