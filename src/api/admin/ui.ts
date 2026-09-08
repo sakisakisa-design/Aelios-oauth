@@ -316,6 +316,19 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
         </div>
         <p class="mt-2 text-xs leading-6 text-zinc-400" x-text="spaceDescription()"></p>
         <p class="text-xs leading-6 text-zinc-500">这里切换查看的记忆；客户端使用哪位助手由接入地址和钥匙决定。</p>
+        <div x-show="selectedIdentity" class="mt-3 rounded-xl border border-zinc-800 bg-[#0a0a0b] p-3">
+          <p class="text-xs text-zinc-400">说话人名字</p>
+          <p class="mt-1 text-[11px] leading-5 text-zinc-500">Dream、日记、周月卷、审核写记忆时只用这两个名字，不许写用户/助手。</p>
+          <div class="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
+            <label class="text-xs text-zinc-400">用户叫什么
+              <input x-model="speakerUserName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 咲咲">
+            </label>
+            <label class="text-xs text-zinc-400">助手叫什么
+              <input x-model="speakerAssistantName" class="mt-1 h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="如 旦九；留空用路径名">
+            </label>
+            <button type="button" @click="saveSpeakers()" :disabled="speakerBusy" class="tap h-11 rounded-2xl bg-coral px-4 text-sm font-semibold text-zinc-950 transition duration-150 ease-in-out active:bg-coral/80 disabled:opacity-60">保存名字</button>
+          </div>
+        </div>
         <p x-show="identityLoadError" x-text="identityLoadError" class="mt-2 text-xs text-coral"></p>
         <details class="mt-2" :open="!selectedIdentity">
           <summary class="cursor-pointer text-xs text-zinc-500">高级：手动指定空间</summary>
@@ -1030,13 +1043,18 @@ document.documentElement.dataset.theme = localStorage.getItem('aelios.admin.colo
             <label class="text-xs text-zinc-400">助手</label>
             <button type="button" @click="gwAdd()" class="tap rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 transition duration-150 ease-in-out hover:border-coral hover:text-zinc-100">+ 添加助手</button>
           </div>
-          <p class="mt-1 text-[11px] text-zinc-500">名字即地址路径段;主模型支持 * 通配,只有主模型有记忆、进 Dream。</p>
+          <p class="mt-1 text-[11px] text-zinc-500">名字即地址路径段;主模型支持 * 通配,只有主模型有记忆、进 Dream。用户名和助手名给 Dream、日记、周月卷、审核写记忆用,只许写名字,不许写用户/助手。顶部选择助手后也能填。</p>
           <template x-for="(idn, i) in gwIdentities" :key="i">
             <div class="mt-2 space-y-2 rounded-2xl border border-zinc-800 bg-[#0a0a0b] p-3">
               <div class="flex items-center gap-2">
                 <input x-model="idn.slug" class="h-10 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="名字,如 coder">
                 <button type="button" @click="gwIdentities.splice(i, 1)" class="tap shrink-0 rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-500 transition hover:border-coral hover:text-zinc-100">移除</button>
               </div>
+              <div class="grid grid-cols-2 gap-2">
+                <input x-model="idn.userName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="用户叫什么,如 咲咲">
+                <input x-model="idn.assistantName" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="助手叫什么,如 旦九">
+              </div>
+              <p class="text-[11px] text-zinc-500">Dream、日记、周月卷、审核写记忆只用这两个名字。助手名留空则用路径名。顶部选择助手后也能填。</p>
               <input x-model="idn.modelsText" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="主模型,逗号分隔,如 anthropic/claude-opus-5, *fable*">
               <input x-model="idn.namespace" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="写入空间,留空与名字同名">
               <input x-model="idn.readNamespacesText" class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-coral" placeholder="召回空间,逗号分隔;留空只读写入空间;[] 不召回">
@@ -1143,6 +1161,9 @@ function memoryAdmin() {
     selectedIdentity: localStorage.getItem('aelios.admin.identity') || '',
     identityPreferenceReady: localStorage.getItem('aelios.admin.identity') !== null,
     identityLoadError: '',
+    speakerUserName: '',
+    speakerAssistantName: '',
+    speakerBusy: false,
     spaceRevision: 0,
     page: 'today',
     moreView: 'precious',
@@ -1240,6 +1261,7 @@ function memoryAdmin() {
           this.clearSpaceData();
         }
         this.savePrefs();
+        this.syncSpeakerDraft();
       } catch (error) {
         if (revision !== this.spaceRevision) return;
         this.identityLoadError = '助手列表读取失败，可在高级选项中填写空间名：' + error.message;
@@ -1248,8 +1270,35 @@ function memoryAdmin() {
     selectIdentity(slug) {
       this.identityPreferenceReady = true;
       this.selectedIdentity = slug;
+      this.syncSpeakerDraft();
       const idn = this.currentIdentity();
       return this.switchSpace(idn ? (idn.namespace || idn.slug) : this.namespace);
+    },
+    syncSpeakerDraft() {
+      const idn = this.currentIdentity();
+      this.speakerUserName = idn && idn.userName || '';
+      this.speakerAssistantName = idn && idn.assistantName || '';
+    },
+    async saveSpeakers() {
+      const slug = this.selectedIdentity;
+      if (!slug || this.speakerBusy) return;
+      this.speakerBusy = true;
+      try {
+        const config = await this.request('/api/gateway/config');
+        const identities = config.identities || [];
+        const idn = identities.find(item => item.slug === slug);
+        if (!idn) throw new Error('找不到这位助手');
+        const userName = (this.speakerUserName || '').trim();
+        const assistantName = (this.speakerAssistantName || '').trim();
+        if (userName) idn.userName = userName; else delete idn.userName;
+        if (assistantName) idn.assistantName = assistantName; else delete idn.assistantName;
+        await this.request('/api/gateway/config', { method: 'PUT', body: JSON.stringify(config) });
+        const card = this.gwIdentities.find(item => item.slug === slug);
+        if (card) { card.userName = userName; card.assistantName = assistantName; }
+        await this.loadMemoryIdentities();
+        this.notify('说话人名字保存好了');
+      } catch (error) { this.notify('说话人名字保存失败:' + error.message); }
+      this.speakerBusy = false;
     },
     selectCustomSpace(name) {
       this.identityPreferenceReady = true;
@@ -1388,6 +1437,8 @@ function memoryAdmin() {
         this.gwIdentities = (config.identities || []).map(function(idn) {
           return {
             slug: idn.slug || '',
+            userName: idn.userName || '',
+            assistantName: idn.assistantName || '',
             modelsText: (idn.models || []).join(', '),
             namespace: idn.namespace || '',
             readNamespacesText: idn.readNamespaces ? (idn.readNamespaces.length ? idn.readNamespaces.join(', ') : '[]') : '',
@@ -1404,7 +1455,7 @@ function memoryAdmin() {
       this.gwBusy = false;
     },
     gwAdd() {
-      this.gwIdentities.push({ slug: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '' });
+      this.gwIdentities.push({ slug: '', userName: '', assistantName: '', modelsText: '', namespace: '', readNamespacesText: '', keys: ['CHATBOX_API_KEY'], anthropicThinking: 'passthrough', maxMemoryChars: '' });
     },
     async gwSave() {
       if (this.gwBusy) return;
@@ -1416,6 +1467,8 @@ function memoryAdmin() {
             keys: idn.keys,
             models: (idn.modelsText || '').split(/[,，\n]/).map(function(s) { return s.trim(); }).filter(Boolean)
           };
+          if ((idn.userName || '').trim()) out.userName = idn.userName.trim();
+          if ((idn.assistantName || '').trim()) out.assistantName = idn.assistantName.trim();
           if ((idn.namespace || '').trim()) out.namespace = idn.namespace.trim();
           const reads = (idn.readNamespacesText || '').trim();
           if (reads) out.readNamespaces = reads === '[]' ? [] : reads.split(/[,，\n]/).map(function(s) { return s.trim(); }).filter(Boolean);

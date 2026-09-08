@@ -18,7 +18,7 @@ import { callModelWithRetry, readModelName } from "../utils/modelCall";
 import type { Env, MessageRecord } from "../types";
 import { extractJsonObject } from "../utils/parse";
 import { createVectorMemory } from "./vectorStore";
-import { cleanMessageText } from "../utils/sanitize";
+import { formatSpeakerTranscript, judgeSpeakerRules, loadSpeakersForNamespace, type DreamSpeakers } from "./speakers";
 
 // listMemoryCandidates 本身按 confidence ASC 排序，正好是"先看最没把握的"，直接复用，
 // 不用再为 judge 单独建一个查询。
@@ -134,23 +134,28 @@ export function decideJudge(
   return "keep";
 }
 
-function formatTranscript(messages: MessageRecord[]): string {
-  return messages
-    .map((message) => {
-      const role = message.role === "assistant" ? "我(助手)" : "用户";
-      return `[${message.id}][${message.created_at}][${role}] ${cleanMessageText(message.content).slice(0, 900)}`;
-    })
-    .join("\n\n");
-}
-
-export function buildJudgePrompt(candidate: MemoryCandidateRow, messages: MessageRecord[]): string {
+export function buildJudgePrompt(
+  candidate: MemoryCandidateRow,
+  messages: MessageRecord[],
+  speakers: DreamSpeakers | null = null
+): string {
   const tags = parseJsonArray(candidate.tags);
-  const transcript = messages.length > 0 ? formatTranscript(messages) : "(没有能核对的原始消息)";
+  const transcript = messages.length > 0 ? formatSpeakerTranscript(messages, speakers, 900) : "(没有能核对的原始消息)";
   const kind = judgeKindFor(candidate.source);
+  const namedReason = speakers
+    ? `${speakers.userName}用新内容明确修正了旧事实。`
+    : "用户用新内容明确修正了旧事实。";
+  const namedAddReason = speakers
+    ? `对话里${speakers.userName}明确说过这件事，且是长期稳定的事实。`
+    : "对话里用户明确说过这件事，且是长期稳定的事实。";
+  const keepHandwritten = speakers
+    ? `- 亲笔/${speakers.userName}明确要求记住的内容，除非${speakers.userName}后来收回，否则不要删。`
+    : "- 亲笔/用户明确要求记住的内容，除非用户后来收回，否则不要删。";
   const common = [
     "你是 Aelios 记忆候选队列的自动评审员。",
     "只输出 JSON，不要 markdown，不要解释，不要输出思考过程。",
     "grounded / durable / should_delete 必须是 JSON 布尔值 true 或 false，不要用字符串。",
+    ...judgeSpeakerRules(speakers),
     "",
     "待审候选：",
     JSON.stringify({
@@ -173,7 +178,7 @@ export function buildJudgePrompt(candidate: MemoryCandidateRow, messages: Messag
       "score 衡量的是「这条记忆应不应该删」，不是「这条事实好不好」。",
       "- 仍然有据、仍然成立、仍然值得留着 → should_delete=false，score 低。",
       "- 过时、被对话否定、重复噪音、或明确不再成立 → should_delete=true，score 高。",
-      "- 亲笔/用户明确要求记住的内容，除非用户后来收回，否则不要删。",
+      keepHandwritten,
       "输出格式：",
       JSON.stringify({
         score: 0.15,
@@ -201,7 +206,7 @@ export function buildJudgePrompt(candidate: MemoryCandidateRow, messages: Messag
         grounded: true,
         durable: true,
         should_delete: false,
-        reason: "用户用新内容明确修正了旧事实。"
+        reason: namedReason
       }),
       "",
       ...common
@@ -223,7 +228,7 @@ export function buildJudgePrompt(candidate: MemoryCandidateRow, messages: Messag
       grounded: true,
       durable: true,
       should_delete: false,
-      reason: "对话里用户明确说过这件事，且是长期稳定的事实。"
+      reason: namedAddReason
     }),
     "",
     ...common
@@ -341,6 +346,8 @@ export async function runCandidateJudge(
     return { ran: true, judged: 0, approved: 0, discarded: 0, kept: 0, failed: 0, model, reason: "no_candidates" };
   }
 
+  const speakers = await loadSpeakersForNamespace(env, namespace);
+
   let judged = 0;
   let approved = 0;
   let discarded = 0;
@@ -372,7 +379,7 @@ export async function runCandidateJudge(
           reason: "没有可核对的原始消息，无法确认是否有据"
         };
       } else {
-        const modelResult = await callJudgeModel(env, model, buildJudgePrompt(candidate, messages), { id: candidate.id });
+        const modelResult = await callJudgeModel(env, model, buildJudgePrompt(candidate, messages, speakers), { id: candidate.id });
         if (!modelResult) {
           failed += 1;
           console.error("candidate judge: model call failed or returned invalid JSON", { namespace, id: candidate.id });

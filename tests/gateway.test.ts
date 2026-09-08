@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import worker from "../src/index";
-import { identityNamespace, identityReadNamespaces, invalidateSettingsCache, validateConfig } from "../src/gateway/config";
+import { identityNamespace, identityReadNamespaces, invalidateSettingsCache, speakersForNamespace, validateConfig } from "../src/gateway/config";
 import { appendMemory, classifyTurn, canonical } from "../src/gateway/protocol";
 import { catalogUrl, resolveUpstream, routeFor, toolCacheRejections } from "../src/gateway/upstream";
 import { OutputCollector, observeResponse, persistExchange, prepareExchange, dispatchExchange } from "../src/gateway/record";
@@ -661,6 +661,21 @@ test("read-space configuration is backwards compatible, bounded, explicit and ro
   const updated = { ...config(), identities: [{ ...identity(), namespace: "new", readNamespaces: ["old", "shared", "new"] }] };
   assert.equal((await worker.fetch(request("/api/gateway/config", updated, {}, "PUT"), env, ctx)).status, 200);
   assert.deepEqual(JSON.parse((await run("/api/gateway/config")).text).identities[0].readNamespaces, ["old", "shared", "new"]);
+});
+
+test("identity speaker names are optional, bounded, and used by the matching write space", async () => {
+  assert.equal(speakersForNamespace(config() as any, "partner-a"), null);
+  for (const bad of ["", " \n ", "n".repeat(33), "a\nb"]) {
+    assert.throws(() => validateConfig({ ...config(), identities: [{ ...identity(), userName: bad }] }), /userName/);
+  }
+  const named = { ...config(), identities: [{ ...identity(), userName: "咲咲", assistantName: "旦九" }] };
+  const saved = validateConfig(named);
+  assert.deepEqual(speakersForNamespace(saved, "partner-a"), { userName: "咲咲", assistantName: "旦九" });
+  assert.equal(speakersForNamespace(saved, "other"), null);
+  const slugFallback = validateConfig({ ...config(), identities: [{ ...identity(), userName: "咲咲" }] });
+  assert.equal(speakersForNamespace(slugFallback, "partner-a")?.assistantName, "partner");
+  assert.equal((await worker.fetch(request("/api/gateway/config", named, {}, "PUT"), env, ctx)).status, 200);
+  assert.deepEqual(JSON.parse((await run("/api/gateway/config")).text).identities[0].userName, "咲咲");
 });
 
 test("cross-space recall shares one budget, deduplicates and records provenance while writes stay in the new space", async () => {

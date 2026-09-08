@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { prepareSelectorCandidates, selectRecall, type SelectorInput } from "../src/memory/recallSelector";
 import { assembleRecallSurface } from "../src/memory/surface";
 import { buildDreamExtractPrompt } from "../src/memory/dreamExtract";
+import { buildDigestPrompt } from "../src/memory/dream/extractPhase";
+import { formatTranscript } from "../src/memory/dream/helpers";
 import { lexicalOverlapScore, shapeRecallQuery } from "../src/memory/queryShape";
 
 const rankedEnv = { AI: { async run(_model: string, data: any) {
@@ -92,6 +94,50 @@ test("extraction still asks for sources and forbids treating tool calls as succe
   const prompt = buildDreamExtractPrompt([]);
   assert.match(prompt, /source_message_ids 保留全部依据/);
   assert.match(prompt, /不能把工具调用当作已执行成功/);
+  assert.match(prompt, /关于用户的记忆，优先写成“你……”/);
+});
+
+test("named speakers replace user/assistant labels in the dream extract prompt", () => {
+  const prompt = buildDreamExtractPrompt(
+    [{ id: "msg_1", conversation_id: "c", namespace: "default", role: "user", content: "卖掉那台车", source: "test", created_at: "2026-09-08T00:00:00.000Z" }],
+    [],
+    { userName: "咲咲", assistantName: "旦九" }
+  );
+  assert.match(prompt, /用户是咲咲，助手是旦九/);
+  assert.match(prompt, /禁止出现 user、用户、assistant、助手/);
+  assert.match(prompt, /\[msg_1\].*\[咲咲\]/);
+  assert.match(prompt, /咲咲确定了九月按原计划卖掉那台车/);
+  assert.doesNotMatch(prompt, /关于用户的记忆，优先写成“你……”/);
+  assert.doesNotMatch(prompt, /\[用户\]/);
+  assert.doesNotMatch(prompt, /我\(助手\)/);
+});
+
+test("dream digest uses speaker names in transcript and writing rules", () => {
+  const unnamed = buildDigestPrompt({
+    dateLabel: "2026-09-08",
+    startIso: "2026-09-08T00:00:00.000Z",
+    endIso: "2026-09-09T00:00:00.000Z",
+    messages: [{ id: "msg_1", conversation_id: "c", namespace: "default", role: "assistant", content: "好", source: "test", created_at: "2026-09-08T00:00:00.000Z" }],
+    existingMemories: [],
+    hasMore: false
+  });
+  assert.match(unnamed, /站在“我=助手”的视角写/);
+  assert.match(unnamed, /我\(助手\)/);
+
+  const named = buildDigestPrompt({
+    dateLabel: "2026-09-08",
+    startIso: "2026-09-08T00:00:00.000Z",
+    endIso: "2026-09-09T00:00:00.000Z",
+    messages: [{ id: "msg_1", conversation_id: "c", namespace: "default", role: "assistant", content: "好", source: "test", created_at: "2026-09-08T00:00:00.000Z" }],
+    existingMemories: [],
+    hasMore: false,
+    speakers: { userName: "咲咲", assistantName: "旦九" }
+  });
+  assert.match(named, /关于用户用「咲咲……」/);
+  assert.match(named, /禁止出现 user、用户、assistant、助手/);
+  assert.match(named, /\[msg_1\].*\[旦九\]/);
+  assert.doesNotMatch(named, /我=助手/);
+  assert.equal(formatTranscript([{ id: "m", conversation_id: "c", namespace: "default", role: "user", content: "hi", source: null, created_at: "t" }], { userName: "咲咲", assistantName: "旦九" }), "[m][t][咲咲] hi");
 });
 
 test("default ranks exact contextual snippets once and keeps speaker and conditions", async () => {

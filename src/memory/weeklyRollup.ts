@@ -15,6 +15,7 @@ import {
 } from "./dreamDates";
 import { readDreamTimeZoneFromEnv } from "./dreamEnv";
 import { extractJsonObject, readString } from "../utils/parse";
+import { loadSpeakersForNamespace, rollupSpeakerRule, type DreamSpeakers } from "./speakers";
 
 const DEFAULT_TIME_ZONE = "Asia/Singapore";
 const DEFAULT_DREAM_MODEL = "workers-ai/@cf/openai/gpt-oss-120b";
@@ -147,11 +148,12 @@ function normalizeWeeklyRollupResult(value: unknown): WeeklyRollupModelResult {
   return { title, summary };
 }
 
-function buildWeeklyRollupPrompt(input: {
+export function buildWeeklyRollupPrompt(input: {
   week: string;
   startDate: string;
   endDate: string;
   dailyLogs: Array<{ date: string; title: string; summary: string }>;
+  speakers?: DreamSpeakers | null;
 }): string {
   const diaryLines = input.dailyLogs
     .map((row) => `- ${row.date} | ${row.title}\n  ${row.summary}`)
@@ -166,7 +168,7 @@ function buildWeeklyRollupPrompt(input: {
     "- 日记是印象；拿不准的细节删掉，不要写实。",
     "- summary 是一段自然中文周记，300 字以内。",
     "- title 是 12 字以内的周标题。",
-    "- 站在「我=助手」视角；关于用户用「你」，关于助手承诺用「我需要」。",
+    rollupSpeakerRule(input.speakers ?? null),
     "- 不要提到 D1、Vectorize、RAG、数据库、记忆系统、代理层等实现细节。",
     "",
     `周次：${input.week}`,
@@ -311,7 +313,8 @@ async function processWeek(
     week: weekRange.week,
     startDate: weekRange.monday,
     endDate: weekRange.sunday,
-    dailyLogs: dailyLogs.map((row) => ({ date: row.date, title: row.title, summary: row.summary }))
+    dailyLogs: dailyLogs.map((row) => ({ date: row.date, title: row.title, summary: row.summary })),
+    speakers: await loadSpeakersForNamespace(env, namespace)
   });
   const modelResult = await callWeeklyRollupModel(env, prompt, {
     week: weekRange.week,
