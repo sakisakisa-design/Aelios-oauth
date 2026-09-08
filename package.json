@@ -10,7 +10,7 @@
     "setup:cloudflare": "node scripts/setup-cloudflare.mjs",
     "deploy:cloudflare": "npm run deploy",
     "deploy:bare": "wrangler deploy --keep-vars",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tests.json",
     "lint": "biome lint .",
     "test:gateway": "node --import tsx --test tests/gateway.test.ts tests/request-contract.test.ts",
     "test:recall": "node --import tsx --test tests/recall-quality.test.ts tests/danke-recall.test.ts tests/recall-selector.test.ts",
@@ -35,6 +35,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@cloudflare/workers-types": "^4.20250927.0",
+    "@types/node": "^22.10.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "wrangler": "^4.40.2"

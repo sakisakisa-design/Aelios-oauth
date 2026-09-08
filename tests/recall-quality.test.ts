@@ -257,9 +257,9 @@ test("token lexical search matches a phrase the full query would miss", async ()
   const db = {
     prepare(sql: string) {
       const statement = sqlite.prepare(sql);
-      let args: unknown[] = [];
+      let args: any[] = [];
       const api = {
-        bind(...values: unknown[]) { args = values; return api; },
+        bind(...values: any[]) { args = values; return api; },
         async all() { return { results: statement.all(...args) }; }
       };
       return api;
@@ -385,9 +385,9 @@ test("same-timestamp messages are not skipped after a mid-batch cut", async () =
   const db = {
     prepare(sql: string) {
       const statement = sqlite.prepare(sql);
-      let args: unknown[] = [];
+      let args: any[] = [];
       const api = {
-        bind(...values: unknown[]) { args = values; return api; },
+        bind(...values: any[]) { args = values; return api; },
         async all() { return { results: statement.all(...args) }; }
       };
       return api;
@@ -446,9 +446,9 @@ test("raw utterances are searchable before they become facts", async () => {
   const db = {
     prepare(sql: string) {
       const statement = sqlite.prepare(sql);
-      let args: unknown[] = [];
+      let args: any[] = [];
       const api = {
-        bind(...values: unknown[]) { args = values; return api; },
+        bind(...values: any[]) { args = values; return api; },
         async all() { return { results: statement.all(...args) }; },
         async first() { return statement.get(...args) || null; },
         async run() { return { meta: { changes: statement.run(...args).changes } }; }
@@ -529,9 +529,9 @@ test("quotes already visible in the request history are not recalled", async () 
   const db = {
     prepare(sql: string) {
       const statement = sqlite.prepare(sql);
-      let args: unknown[] = [];
+      let args: any[] = [];
       const api = {
-        bind(...values: unknown[]) { args = values; return api; },
+        bind(...values: any[]) { args = values; return api; },
         async all() { return { results: statement.all(...args) }; },
         async first() { return statement.get(...args) || null; },
         async run() { return { meta: { changes: statement.run(...args).changes } }; }
@@ -583,9 +583,9 @@ function wrapSqlite(sqlite: DatabaseSync) {
   return {
     prepare(sql: string) {
       const statement = sqlite.prepare(sql);
-      let args: unknown[] = [];
+      let args: any[] = [];
       const api = {
-        bind(...values: unknown[]) { args = values; return api; },
+        bind(...values: any[]) { args = values; return api; },
         async all() { return { results: statement.all(...args) }; },
         async first() { return statement.get(...args) || null; },
         async run() { return { meta: { changes: statement.run(...args).changes } }; }
@@ -809,6 +809,6 @@ test("FTS backfill indexes missing rows and can rebuild from source text", async
   const rebuilt = await rebuildFts(db as any, { namespace: "ns", limit: 50 });
   assert.equal(rebuilt.messagesIndexed, 1);
   assert.equal(rebuilt.memoriesIndexed, 1);
-  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM message_fts").get()!.n, 1);
+  assert.equal((sqlite.prepare("SELECT count(*) AS n FROM message_fts").get() as any).n, 1);
   sqlite.close();
 });
