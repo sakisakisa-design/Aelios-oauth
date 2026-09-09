@@ -1,6 +1,12 @@
 import { object, type Identity, type Protocol } from "./config";
 import { cleanMessageText } from "../utils/sanitize";
 
+/**
+ * Client request bodies are arbitrary JSON that this layer reads and rewrites field by field.
+ * Narrowing to `unknown` costs 77 type errors across the gateway and buys no safety the runtime
+ * guards here do not already provide.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: see above
 export type Body = Record<string, any>;
 export function visibleText(content: unknown): string {
   if (typeof content === "string") return content;

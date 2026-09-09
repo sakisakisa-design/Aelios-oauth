@@ -117,7 +117,7 @@ async function handleCreateMemory(
     }
   }
 
-  let memory;
+  let memory: ReturnType<typeof toMemoryApiRecord>;
   try {
     const created = await createMemory(env.DB, {
       namespace: resolveNamespace(profile, body.namespace),
@@ -835,7 +835,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
         target.status === "active" &&
         target.version_status !== "superseded";
       if (targetActive) {
-        let result;
+        let result: Awaited<ReturnType<typeof supersedeMemory>>;
         try {
           result = await supersedeMemory(env, {
             namespace,
@@ -876,7 +876,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
     const fallbackNote = candidate.target_memory_id
       ? `${readString(body.decision_note) || "approved"}; target_gone_fallback`
       : readString(body.decision_note) || "approved";
-    let approval;
+    let approval: Awaited<ReturnType<typeof createApprovedMemoryFromCandidate>>;
     try {
       approval = await createApprovedMemoryFromCandidate(env, {
         namespace,
@@ -954,7 +954,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
   if (action === "supersede") {
     const oldId = readString(body.target_id);
     if (!oldId) return openAiError("target_id is required", 400);
-    let result;
+    let result: Awaited<ReturnType<typeof supersedeMemory>>;
     try {
       result = await supersedeMemory(env, {
         namespace,

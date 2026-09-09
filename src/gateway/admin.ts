@@ -1,6 +1,6 @@
 import { authenticate } from "../auth/apiKey";
 import type { Env } from "../types";
-import { identityNamespace, invalidateSettingsCache, loadConfig, validateConfig } from "./config";
+import { identityNamespace, invalidateSettingsCache, loadConfig, validateConfig, type GatewayConfig } from "./config";
 import { describeSettings } from "./settings";
 
 async function ownerOnly(request: Request, env: Env): Promise<boolean> {
@@ -19,7 +19,7 @@ export async function handleGatewayAdmin(request: Request, env: Env): Promise<Re
   try {
     if (request.method === "GET") return Response.json(await loadConfig(env), { headers: { "cache-control": "no-store" } });
     if (request.method !== "PUT") return Response.json({ error: "Use GET or PUT" }, { status: 405, headers: { allow: "GET, PUT" } });
-    let config;
+    let config: GatewayConfig;
     try { config = validateConfig(await request.json()); }
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Invalid config" }, { status: 400 }); }
     await env.DB.prepare(`INSERT INTO gateway_config (id, config_json, updated_at) VALUES (1, ?, ?)
