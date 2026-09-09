@@ -60,8 +60,7 @@ function unwrapTransportEnvelopes(text: string): string {
   out += text.slice(cursor);
 
   const open = /<([a-zA-Z][\w:-]*)\b([^>]*?)>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = open.exec(out))) {
+  for (let match = open.exec(out); match; match = open.exec(out)) {
     if (match[0].endsWith("/>")) continue;
     if (!isTransportEnvelope(match[1], match[2])) continue;
     const after = out.slice(match.index + match[0].length);
@@ -73,24 +72,23 @@ function unwrapTransportEnvelopes(text: string): string {
 }
 
 function stripInstructionBlocks(text: string): string {
-  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*\/>/gi, (full, tag) =>
+  let out = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*\/>/gi, (full, tag) =>
     isInstructionBlock(tag) ? "" : full
   );
-  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (full, tag) =>
+  out = out.replace(/<([a-zA-Z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (full, tag) =>
     isInstructionBlock(tag) ? "" : full
   );
 
   const open = /<([a-zA-Z][\w:-]*)\b[^>]*>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = open.exec(text))) {
+  for (let match = open.exec(out); match; match = open.exec(out)) {
     if (match[0].endsWith("/>")) continue;
     if (!isUnclosedInstructionWrapper(match[1])) continue;
-    const after = text.slice(match.index + match[0].length);
+    const after = out.slice(match.index + match[0].length);
     if (hasCloseTag(after, match[1])) continue;
-    text = text.slice(0, match.index);
+    out = out.slice(0, match.index);
     break;
   }
-  return text;
+  return out;
 }
 
 /** Channel/harness status lines. Not speech — the send itself is in the tool call. */
@@ -101,12 +99,12 @@ function isDeliveryReceipt(line: string): boolean {
 
 /** Whole-utterance (or trailing) templates that clients inject without tags. */
 function dropMachineProse(text: string): string {
-  text = text
+  const stripped = text
     .replace(/(?:^|\n)user stepped away;?\s*returning\.\s*recap:[\s\S]*$/i, "")
     .replace(/(?:^|\n)recap:\s*<[\s\S]*$/i, "")
     .replace(/(?:^|\n)today:\s*\d{4}-\d{2}-\d{2}\b[\s\S]*current working directory[\s\S]*$/i, "")
     .trim();
-  return text.split("\n").filter((line) => !isDeliveryReceipt(line.trim())).join("\n").trim();
+  return stripped.split("\n").filter((line) => !isDeliveryReceipt(line.trim())).join("\n").trim();
 }
 
 /**

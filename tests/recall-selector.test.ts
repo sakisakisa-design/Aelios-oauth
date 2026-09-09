@@ -188,7 +188,7 @@ test("evidence shares two slots globally, with only one excerpt from a shared so
 
 test("same source id in unrelated spaces is not evidence of duplication", async () => {
   const i = input("暗号原话", ["我的暗号是月亮。", "我的暗号是太阳。"]);
-  i.entries.forEach(e => e.sourceIds = ["local1"]);
+  for (const e of i.entries) e.sourceIds = ["local1"];
   i.entries[1].namespace = "b";
   assert.equal((await selectRecall(scoreEnv([0.9, 0.8]), i)).entries.length, 2);
 });
@@ -219,7 +219,7 @@ test("latest evidence questions skip ranking; casual latest talk still ranks", a
 test("invalid score references fall back to a lexical hit", async () => {
   const i = input("草莓", ["你喜欢草莓。", "你喜欢芒果。"]);
   for (const response of [[], [{ id: 0, score: 0.9 }], [{ id: 0, score: 0.9 }, { id: 0, score: 0.8 }],
-    [{ id: 0, score: 0.9 }, { id: 2, score: 0.8 }], [{ id: 0, score: NaN }, { id: 1, score: 0.8 }]]) {
+    [{ id: 0, score: 0.9 }, { id: 2, score: 0.8 }], [{ id: 0, score: Number.NaN }, { id: 1, score: 0.8 }]]) {
     const result = await selectRecall({ AI: { async run() { return { response }; } } } as any, i);
     assert.equal(result.status, "lexical");
     assert.equal(result.reason, "reranker_invalid_response");
@@ -260,7 +260,7 @@ test("ranking timeout discards late scores and falls back once", async () => {
 });
 
 test("long-record tail is scored with preceding context, never just a truncated head", async () => {
-  const content = "很久以前聊了一件无关的事情。".repeat(50) + "假如调试通过。暗号会改成月亮邮局。";
+  const content = `${"很久以前聊了一件无关的事情。".repeat(50)}假如调试通过。暗号会改成月亮邮局。`;
   const i = input("调试暗号", [content]);
   let scored: string[] = [];
   const env = { AI: { async run(_model: string, data: any) {
@@ -277,7 +277,7 @@ test("long-record tail is scored with preceding context, never just a truncated 
 
 test("score batch stays within 16 candidates and 64 complete snippets", async () => {
   const i = input("Cloudflare", Array.from({ length: 24 }, (_, n) =>
-    `条目${n}。` + Array.from({ length: 20 }, (_, j) => `Cloudflare 本条的第${j}句话用于测试窗口预算。`).join("")));
+    `条目${n}。${Array.from({ length: 20 }, (_, j) => `Cloudflare 本条的第${j}句话用于测试窗口预算。`).join("")}`));
   let calls = 0;
   const env = { AI: { async run(_model: string, data: any) {
     calls++;
@@ -294,7 +294,7 @@ test("score batch stays within 16 candidates and 64 complete snippets", async ()
 test("archive labels never become evidence and long unbroken conditions are not cut", () => {
   const i = input("搬家", ["【对话归档 v1 2026-09-07】\n事实：\n宁皎搬好了。"]);
   assert.deepEqual(prepareSelectorCandidates(i).candidates[0].windows, ["宁皎搬好了。"]);
-  const unsafe = input("搬家", ["假如" + "条件".repeat(210) + "成立才搬家。"]);
+  const unsafe = input("搬家", [`假如${"条件".repeat(210)}成立才搬家。`]);
   const result = prepareSelectorCandidates(unsafe);
   assert.equal(result.candidates.length, 0);
   assert.equal(result.decisions[0].reason, "no_safe_window");

@@ -363,7 +363,7 @@ async function callTool(
     if (isV2Enabled(env)) return toolError("memory_create is deprecated in v2; use memory_upsert with fact_key");
     const content = readString(args.content);
     if (!content) return toolError("content is required");
-    let memory;
+    let memory: Awaited<ReturnType<typeof createVectorMemory>>;
     try {
       memory = await createVectorMemory(env, {
         namespace: resolveNamespace(profile, args.namespace),

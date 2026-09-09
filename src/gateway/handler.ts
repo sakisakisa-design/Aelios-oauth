@@ -10,7 +10,7 @@ import type { Env } from "../types";
 import { newId } from "../utils/ids";
 import { nowIso } from "../utils/time";
 import { cleanMessageText } from "../utils/sanitize";
-import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type Identity, type Protocol } from "./config";
+import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type GatewayConfig, type Identity, type Protocol } from "./config";
 import { appendMemory, classifyTurn, hasServerState, inputItems, recentHumanTexts, validateBody, visibleText, type Body } from "./protocol";
 import { RequestContractError } from "./request";
 import { dispatchExchange, persistHumanUtterance, observeResponse, prepareExchange } from "./record";
@@ -30,16 +30,16 @@ function memoryKind(source: string | null | undefined, type: string, authoredBy?
 export async function recallPatch(
   env: Env,
   identity: Identity,
-  query: string,
+  rawQuery: string,
   ctx: ExecutionContext,
-  recent: string[] = [],
+  rawRecent: string[] = [],
   options: { excludeMessageIds?: string[]; recallId?: string; excludeVisibleIn?: string } = {}
 ): Promise<string> {
   const namespace = identityNamespace(identity);
   const namespaces = identityReadNamespaces(identity);
   const recallId = options.recallId ?? newId("rcl");
-  query = cleanMessageText(query);
-  recent = recent.map((text) => cleanMessageText(text)).filter(Boolean);
+  const query = cleanMessageText(rawQuery);
+  const recent = rawRecent.map((text) => cleanMessageText(text)).filter(Boolean);
   if (!query) {
     console.log("gateway recall decision", { recall_id: recallId, identity: identity.slug, injected: 0,
       reason: "no_user_speech" });
@@ -208,7 +208,7 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
   let body: Body;
   try { body = await request.json(); validateBody(body, protocol); }
   catch (error) { return gatewayError(protocol, error instanceof Error ? error.message : "Invalid JSON", 400); }
-  let config;
+  let config: GatewayConfig;
   try { config = await loadConfig(env); }
   catch { return gatewayError(protocol, "Gateway configuration unavailable. Apply migrations and check /admin.", 503); }
   const identity = findIdentity(config, auth, slug);

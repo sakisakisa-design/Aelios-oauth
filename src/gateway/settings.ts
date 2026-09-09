@@ -81,7 +81,8 @@ export function describeSettings(env: Env, settings: Record<string, string>) {
   const groups: { group: string; items: unknown[] }[] = [];
   for (const spec of SETTINGS) {
     const deployed = source[spec.name];
-    const group = groups.find(g => g.group === spec.group) || (groups.push({ group: spec.group, items: [] }), groups[groups.length - 1]);
+    let group = groups.find(g => g.group === spec.group);
+    if (!group) { group = { group: spec.group, items: [] }; groups.push(group); }
     group.items.push({
       name: spec.name, label: spec.label, hint: spec.hint || "",
       value: settings[spec.name] || "",

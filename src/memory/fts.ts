@@ -213,7 +213,7 @@ export async function purgeOrphanFts(db: D1Database): Promise<{ messages: number
   let memories = 0;
   try {
     const msg = await db.prepare(
-      `DELETE FROM message_fts WHERE message_id NOT IN (SELECT id FROM messages)`
+      "DELETE FROM message_fts WHERE message_id NOT IN (SELECT id FROM messages)"
     ).run();
     messages = msg.meta.changes ?? 0;
   } catch (error) {

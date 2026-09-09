@@ -26,6 +26,5 @@ jobs:
       - name: Verify
         run: npm run verify
 
-      - name: Lint (non-blocking; see PR #57 follow-up)
+      - name: Lint
         run: npm run lint
-        continue-on-error: true

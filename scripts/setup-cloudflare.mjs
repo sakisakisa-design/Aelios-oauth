@@ -332,7 +332,7 @@ function ensureAccountIdVar() {
     return;
   }
   upsertVarFromEnvironment("CLOUDFLARE_ACCOUNT_ID", accountId);
-  console.log(`\nCLOUDFLARE_ACCOUNT_ID auto-filled into [vars] from the deploy environment.`);
+  console.log("\nCLOUDFLARE_ACCOUNT_ID auto-filled into [vars] from the deploy environment.");
 }
 
 ensureVisibleVars();

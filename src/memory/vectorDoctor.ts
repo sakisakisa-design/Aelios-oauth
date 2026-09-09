@@ -129,7 +129,7 @@ async function enumerateNamespaceVectors(
   }
 
   // --- Phase 1: paginated full-index ID discovery via /list ---
-  let phase1Ids: string[] = [];
+  const phase1Ids: string[] = [];
   try {
     let cursor: string | undefined;
     let hasMore = true;

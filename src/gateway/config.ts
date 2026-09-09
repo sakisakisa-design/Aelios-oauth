@@ -34,6 +34,8 @@ export interface GatewayConfig {
   identities: Identity[];
   settings?: Record<string, string>;
 }
+/** The guard that opens untrusted JSON up for every caller; see the note on `Body` in protocol.ts. */
+// biome-ignore lint/suspicious/noExplicitAny: see above
 export function object(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

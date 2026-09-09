@@ -58,6 +58,13 @@ export function spanRerankerSettings(env: Env) {
   };
 }
 
+/** The reranker binding answers with either a bare array of rows or a one-key envelope. */
+type RerankerOutput =
+  | { id?: unknown; index?: unknown; score?: unknown }[]
+  | { response?: unknown; result?: unknown; data?: unknown }
+  | null
+  | undefined;
+
 async function scoreRecallSpans(env: Env, query: string, texts: string[]) {
   const { model, timeout } = spanRerankerSettings(env);
   if (env.ENABLE_MEMORY_RERANKER === "false") throw new Error("reranker_disabled");
@@ -66,10 +73,13 @@ async function scoreRecallSpans(env: Env, query: string, texts: string[]) {
   if (!texts.length || texts.length > 64) throw new Error("reranker_invalid_budget");
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const output: any = await Promise.race([
-      env.AI.run(model as any, { query, contexts: texts.map(text => ({ text })), top_k: texts.length } as any),
+    // Workers AI types the model name and its options as per-model literal unions;
+    // ours comes from a setting, so widen to whatever `run` accepts.
+    type RunArgs = Parameters<NonNullable<Env["AI"]>["run"]>;
+    const output = await Promise.race([
+      env.AI.run(model as RunArgs[0], { query, contexts: texts.map(text => ({ text })), top_k: texts.length } as RunArgs[1]),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("reranker_timeout")), timeout); })
-    ]);
+    ]) as RerankerOutput;
     const rows = Array.isArray(output) ? output : output?.response ?? output?.result ?? output?.data;
     if (!Array.isArray(rows) || rows.length !== texts.length) throw new Error("reranker_invalid_response");
     const seen = new Set<number>();

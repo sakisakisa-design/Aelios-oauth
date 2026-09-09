@@ -106,8 +106,8 @@ export function routeFor(resolved: ResolvedUpstream, protocol: Protocol, model: 
   if (!provider) throw new UpstreamRouteError(
     `"${model}" has no provider prefix; use the author/model form so the BYOK endpoint is known.`);
   const custom = provider.startsWith("custom-");
-  const path = protocol === "messages" ? (custom ? `/messages` : `/v1/messages`)
-    : provider === "openai" || custom ? `/responses` : `/v1/responses`;
+  const path = protocol === "messages" ? (custom ? "/messages" : "/v1/messages")
+    : provider === "openai" || custom ? "/responses" : "/v1/responses";
   return { url: `${gw}/${provider}${path}`, model: native, auth: "cf-aig" };
 }
 

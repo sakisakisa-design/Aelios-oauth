@@ -14,8 +14,12 @@ import { lexicalOverlapScore, shapeRecallQuery } from "../src/memory/queryShape"
 // Test production modules and SQL with deterministic HTTP and Workers AI doubles.
 (crypto.subtle as any).timingSafeEqual = (a: Uint8Array, b: Uint8Array) => timingSafeEqual(a, b);
 let sqlite: DatabaseSync;
-let db: any, env: any, ctx: any;
-let pending: Promise<unknown>[], calls: any[], queue: any[];
+let db: any;
+let env: any;
+let ctx: any;
+let pending: Promise<unknown>[];
+let calls: any[];
+let queue: any[];
 const identity = () => ({ slug: "partner", namespace: "partner-a", keys: ["CHATBOX_API_KEY"],
   anthropicThinking: "drop_block", models: ["partner", "listed-model", "*opus*"] });
 function config(identities = [identity()]) {
@@ -25,7 +29,7 @@ function setConfig(c: any) { env.GATEWAY_CONFIG = JSON.stringify(c); }
 beforeEach(() => {
   sqlite?.close(); sqlite = new DatabaseSync(":memory:");
   for (const file of readdirSync("migrations").filter((f: string) => f.endsWith(".sql")).sort()) {
-    try { sqlite.exec(readFileSync("migrations/" + file, "utf8")); }
+    try { sqlite.exec(readFileSync(`migrations/${file}`, "utf8")); }
     catch (error) {
       if (!String(error).includes("fts5")) throw error;
     }
@@ -66,7 +70,7 @@ beforeEach(() => {
   setConfig(config());
 });
 function request(path: string, body?: any, headers: any = {}, method = body ? "POST" : "GET") {
-  return new Request("https://aelios.test" + path, { method,
+  return new Request(`https://aelios.test${path}`, { method,
     headers: { authorization: "Bearer owner-key", "content-type": "application/json", ...headers },
     ...(body ? { body: JSON.stringify(body) } : {}) });
 }
@@ -223,7 +227,7 @@ test("model tool calls are recorded; delivery receipts and tool results are not"
   } finally { globalThis.fetch = mock; }
 
   const out = new OutputCollector("messages");
-  const event = (data: any) => out.chunk(new TextEncoder().encode("data: " + JSON.stringify(data) + "\n\n"));
+  const event = (data: any) => out.chunk(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
   event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t", name: "weixin_send", input: {} } });
   event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: "{\"text\":\"在的\"}" } });
   event({ type: "content_block_stop", index: 0 });
@@ -332,7 +336,7 @@ test("retry hashes ignore key order but distinguish later repeated words and ses
 });
 test("main-model whitelist gates recall and recording; other models pass through untouched", async () => {
   precious("partner-a", "喜欢 Cloudflare");
-  const ask = (model: string, text = "Hi " + model + " 我们喜欢 Cloudflare 吗") =>
+  const ask = (model: string, text = `Hi ${model} 我们喜欢 Cloudflare 吗`) =>
     run("/v1/chat/completions", { model, messages: [{ role: "user", content: text }] });
   await ask("partner");
   assert.equal(calls[0].query.model, "partner");
@@ -361,7 +365,7 @@ test("SSE byte-exact Unicode and CRLF boundaries; no thinking in observed text",
 });
 test("Responses terminal snapshot does not duplicate deltas; broken stream stays incomplete", () => {
   const out = new OutputCollector("responses");
-  const event = (data: any) => out.chunk(new TextEncoder().encode("data: " + JSON.stringify(data) + "\n\n"));
+  const event = (data: any) => out.chunk(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
   event({ type: "response.output_text.delta", delta: "Hello" });
   event({ type: "response.completed", response: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello" }] }] } });
   assert.equal(out.text, "Hello"); assert.equal(out.complete, true);

@@ -132,8 +132,8 @@ function readRerankerResponse(value: unknown): Array<{ id: number; score: number
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const item = row as { id?: unknown; index?: unknown; score?: unknown };
-    const id = typeof item.id === "number" ? item.id : typeof item.index === "number" ? item.index : NaN;
-    const score = typeof item.score === "number" ? item.score : NaN;
+    const id = typeof item.id === "number" ? item.id : typeof item.index === "number" ? item.index : Number.NaN;
+    const score = typeof item.score === "number" ? item.score : Number.NaN;
     if (Number.isInteger(id) && Number.isFinite(score)) result.push({ id, score });
   }
 
