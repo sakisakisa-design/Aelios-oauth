@@ -198,7 +198,7 @@ npm run verify
 
 测试需要 Node.js 22+。
 
-CI 里 lint 目前设为非阻断（`continue-on-error`）：存量代码尚有约 146 个 Biome error 待清理，计划在后续 PR 中逐步清零，因此报告仍会产出但不阻断合并；新代码应尽量不新增 lint error。
+CI 里 lint 是阻断的：`npm run lint` 必须零 error 才能合并。仍有 17 个 `noNonNullAssertion` warning，这条规则在 `biome.json` 里被降为 warning，不影响退出码 —— 清不清由改到那行的人自己判断，别用 Biome 的自动修复批量改，它会把 `x!.y` 换成 `x?.y`，把「出错就炸」变成「悄悄返回 undefined」。
 
 ## License
 
