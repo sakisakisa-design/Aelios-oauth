@@ -33,11 +33,11 @@ export async function prepareExchange(request: Request, body: Body, identity: Id
     request.headers.get("x-session-id") || body.metadata?.session_id || "unscoped";
   const namespace = identityNamespace(identity);
   const scope = canonical([namespace, identity.slug, source, session]);
-  const conversationId = "gw_" + await sha256Hex(scope);
+  const conversationId = `gw_${await sha256Hex(scope)}`;
   const prefix = inputItems(body, protocol).slice(0, turn.index + 1);
-  const userId = "gw_user_" + await sha256Hex(canonical([scope, protocol, prefix]));
-  const id = "gw_req_" + await sha256Hex(canonical([scope, protocol, turn.kind, body,
-    request.headers.get("x-aelios-request-id") || ""]));
+  const userId = `gw_user_${await sha256Hex(canonical([scope, protocol, prefix]))}`;
+  const id = `gw_req_${await sha256Hex(canonical([scope, protocol, turn.kind, body,
+    request.headers.get("x-aelios-request-id") || ""]))}`;
   return { type: "gateway_exchange", id, userId, namespace, profile: identity.slug,
     conversationId, protocol, kind: turn.kind, userText: turn.text.slice(0, TEXT_LIMIT), assistantText: "",
     model: "", provider: "", httpStatus: 0, completion: turn.text.length > TEXT_LIMIT ? "truncated" : "incomplete",
@@ -58,16 +58,16 @@ export async function persistExchange(env: Env, e: GatewayExchange): Promise<voi
       e.model, e.provider, e.httpStatus, e.completion, e.createdAt)];
   // Auxiliary tasks and incomplete outputs never become relationship memories.
   if (e.kind !== "auxiliary") {
-    statements.push(env.DB.prepare(`INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+    statements.push(env.DB.prepare("INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)")
       .bind(e.conversationId, e.namespace, e.createdAt, e.createdAt));
     const addMessage = (id: string, role: string, content: string, seq: number) => statements.push(env.DB.prepare(`INSERT OR IGNORE INTO messages
       (id, conversation_id, namespace, role, content, source, client_message_hash, upstream_model,
        upstream_provider, request_model, stream, finish_reason, created_at, seq)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, e.conversationId, e.namespace, role, content, "gateway:" + e.profile, id,
+      .bind(id, e.conversationId, e.namespace, role, content, `gateway:${e.profile}`, id,
         e.model, e.provider, e.profile, e.stream ? 1 : 0, e.completion, e.createdAt, seq));
     if (e.kind === "human" && e.userText && e.completion !== "truncated") addMessage(e.userId, "user", e.userText, 0);
-    if (e.completion === "complete" && spoken) addMessage(e.id + ":assistant", "assistant", spoken, 1);
+    if (e.completion === "complete" && spoken) addMessage(`${e.id}:assistant`, "assistant", spoken, 1);
   }
   await env.DB.batch(statements);
   if (e.kind !== "auxiliary") {
@@ -77,7 +77,7 @@ export async function persistExchange(env: Env, e: GatewayExchange): Promise<voi
     if (e.completion === "complete" && spoken) {
       await upsertMessageFts(env.DB, {
         namespace: e.namespace,
-        messageId: e.id + ":assistant",
+        messageId: `${e.id}:assistant`,
         content: spoken
       });
     }
@@ -110,13 +110,13 @@ export async function persistHumanUtterance(
     return { saved: false, indexed: false, remember: { wrote: false } };
   }
   await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+    env.DB.prepare("INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)")
       .bind(e.conversationId, e.namespace, e.createdAt, e.createdAt),
     env.DB.prepare(`INSERT OR IGNORE INTO messages
       (id, conversation_id, namespace, role, content, source, client_message_hash, upstream_model,
        upstream_provider, request_model, stream, finish_reason, created_at, seq)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(e.userId, e.conversationId, e.namespace, "user", e.userText, "gateway:" + e.profile, e.userId,
+      .bind(e.userId, e.conversationId, e.namespace, "user", e.userText, `gateway:${e.profile}`, e.userId,
         e.model, e.provider, e.profile, e.stream ? 1 : 0, e.completion, e.createdAt, 0)
   ]);
   const indexed = await upsertMessageFts(env.DB, {
@@ -183,7 +183,7 @@ export class OutputCollector {
     const line = formatToolCall(name, input);
     if (!line) return;
     if (this.text && !this.text.endsWith("\n")) this.append("\n");
-    this.append(line + "\n");
+    this.append(`${line}\n`);
   }
   private notePending(index: number, name: string, json = ""): void {
     const existing = this.pending.get(index) || { name: "", json: "" };

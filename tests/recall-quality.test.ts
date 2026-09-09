@@ -780,8 +780,8 @@ test("FTS backfill indexes missing rows and can rebuild from source text", async
     source TEXT, created_at TEXT, seq INTEGER NOT NULL DEFAULT 0
   )`);
   memoriesSchema(sqlite);
-  sqlite.exec(`CREATE TABLE message_fts (fts_body TEXT, namespace TEXT, message_id TEXT)`);
-  sqlite.exec(`CREATE TABLE memory_fts (fts_body TEXT, namespace TEXT, memory_id TEXT)`);
+  sqlite.exec("CREATE TABLE message_fts (fts_body TEXT, namespace TEXT, message_id TEXT)");
+  sqlite.exec("CREATE TABLE memory_fts (fts_body TEXT, namespace TEXT, memory_id TEXT)");
   const long = `${"前面铺垫。".repeat(40)}最后才出现月亮邮局暗号。`;
   sqlite.prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
     "msg_tail", "c", "ns", "user", long, "gw", "2026-09-06T12:00:00.000Z", 0

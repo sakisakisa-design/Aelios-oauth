@@ -478,7 +478,7 @@ export async function handleMemoryBoot(request: Request, env: Env): Promise<Resp
   const scopeError = requireScope(auth.profile, "memory:read");
   if (scopeError) return scopeError;
 
-  const start = readString(url.searchParams.get("start")) || new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
+  const start = readString(url.searchParams.get("start")) || `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
   const end = readString(url.searchParams.get("end")) || new Date().toISOString();
   const dailyDate = readString(url.searchParams.get("daily_date")) || yesterdayDateLabel();
   const [dailyLog, precious, glossary, todayMessages, todayRawCount, pendingCount, typeCounts] = await Promise.all([

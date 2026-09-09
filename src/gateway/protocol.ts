@@ -52,13 +52,13 @@ export function appendMemory(body: Body, protocol: Protocol, patch: string): Bod
   const copy = structuredClone(body);
   if (!patch) return copy;
   if (protocol === "responses" && typeof copy.input === "string") {
-    copy.input += "\n\n" + patch;
+    copy.input += `\n\n${patch}`;
     return copy;
   }
   const items = inputItems(copy, protocol);
   const last = items[items.length - 1];
   // Preserve every original content block and client cache_control marker.
-  if (typeof last.content === "string") last.content += "\n\n" + patch;
+  if (typeof last.content === "string") last.content += `\n\n${patch}`;
   else last.content = [...(last.content || []), { type: protocol === "responses" ? "input_text" : "text", text: patch }];
   return copy;
 }
@@ -123,7 +123,7 @@ export function applyThinkingPolicy(body: Body, identity: Identity, protocol: Pr
 }
 // Fingerprints sort object keys without rewriting request payloads.
 export function canonical(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (object(value)) return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (object(value)) return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }

@@ -6,7 +6,7 @@ import { ADMIN_HTML } from '../src/api/admin/ui';
 function panel(preferences: Record<string, string> = {}) {
   const storage = new Map(Object.entries(preferences));
   const script = ADMIN_HTML.match(/<script>\s*(function memoryAdmin\(\)[\s\S]*?)<\/script>/)![1];
-  const app = runInNewContext(script + '\nmemoryAdmin()', {
+  const app = runInNewContext(`${script}\nmemoryAdmin()`, {
     localStorage: { getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value) },
     location: { origin: 'https://aelios.test' },
