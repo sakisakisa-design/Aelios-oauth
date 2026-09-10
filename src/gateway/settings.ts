@@ -28,6 +28,7 @@ export const SETTINGS: SettingSpec[] = [
   { group: "数据留存", name: "MESSAGES_RETENTION_DAYS", label: "原始对话保留天数", hint: "Dream 抽完记忆后，原文留几天" },
 
   { group: "模型与线路", name: "AI_GATEWAY_ID", label: "默认 AI Gateway ID", hint: "会写进上游 URL。自定义 Provider 和动态路由必须填对，不能只靠账户默认 Gateway" },
+  { group: "模型与线路", name: "UPSTREAM_STRIP_TOOL_FIELDS", label: "始终剥离的工具字段", hint: "逗号分隔，例如 eager_input_streaming,cache_control。填上就每次先剥，不再等上游那次 400。留空则按线路学习：只在被拒一次后自动剥离（换 isolate 会重学一次），接受该字段的上游不受影响。工具的身份字段 name/description/input_schema/type 会被拒绝" },
   { group: "模型与线路", name: "VISION_MODEL", label: "看图模型" },
   { group: "模型与线路", name: "CHAT_MODEL", label: "导盲犬入口的模型", hint: "只给 /v1/guide-dog 用，聊天走网关身份" },
   { group: "模型与线路", name: "PUBLIC_MODEL_NAME", label: "导盲犬对外显示的模型名" },

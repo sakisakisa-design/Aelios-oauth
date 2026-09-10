@@ -13,6 +13,8 @@ export interface Env {
   DEFAULT_UPSTREAM_MODEL?: string;
   ALLOW_MODEL_PASSTHROUGH?: string;
   AI_GATEWAY_BASE_URL?: string;
+  /** Comma-separated tool-definition fields to strip before every upstream send. */
+  UPSTREAM_STRIP_TOOL_FIELDS?: string;
   CHATBOX_API_KEY?: string;
   IM_API_KEY?: string;
   DEBUG_API_KEY?: string;

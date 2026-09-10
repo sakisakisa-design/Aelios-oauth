@@ -6,7 +6,7 @@ import { timingSafeEqual } from "node:crypto";
 import worker from "../src/index";
 import { identityNamespace, identityReadNamespaces, invalidateSettingsCache, speakersForNamespace, validateConfig } from "../src/gateway/config";
 import { appendMemory, classifyTurn, canonical } from "../src/gateway/protocol";
-import { catalogUrl, resolveUpstream, routeFor, toolCacheRejections } from "../src/gateway/upstream";
+import { catalogUrl, resolveUpstream, routeFor, rejectedToolFields } from "../src/gateway/upstream";
 import { OutputCollector, observeResponse, persistExchange, prepareExchange, dispatchExchange } from "../src/gateway/record";
 
 import { lexicalOverlapScore, shapeRecallQuery } from "../src/memory/queryShape";
@@ -435,7 +435,7 @@ test("automatic caching lowers to the last cacheable block without rewriting sys
   assert.deepEqual(calls[2].query.messages[0].content[0].cache_control, cc);
 });
 test("upstream rejecting tool cache_control is learned: retry once stripped, then pre-strip", async () => {
-  toolCacheRejections.clear();
+  rejectedToolFields.clear();
   const vertexError = JSON.stringify({ errorCode: "INVALID_ARGUMENT",
     parameters: { unsafeParams: "{unrecognizedProperty=cache_control}" }, message: "Request contained an unrecognized field" });
   const baseFetch = globalThis.fetch;
@@ -460,7 +460,144 @@ test("upstream rejecting tool cache_control is learned: retry once stripped, the
     assert.equal(seen[2].tools[0].cache_control, undefined);
   } finally {
     globalThis.fetch = baseFetch;
-    toolCacheRejections.clear();
+    rejectedToolFields.clear();
+  }
+});
+test("upstream rejecting eager_input_streaming is learned the same way", async () => {
+  rejectedToolFields.clear();
+  const relayError = JSON.stringify({ errorCode: "INVALID_ARGUMENT", errorName: "LanguageModelService:InvalidRequest",
+    parameters: { unsafeParams: "{unrecognizedProperty=eager_input_streaming}" },
+    message: "Request contained an unrecognized field" });
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  let fail = true;
+  globalThis.fetch = async (url: any, init: any) => {
+    seen.push(JSON.parse(init?.body as string));
+    if (fail) { fail = false; return new Response(relayError, { status: 400 }); }
+    return baseFetch(url, init);
+  };
+  try {
+    const body = { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, eager_input_streaming: true }],
+      messages: [{ role: "user", content: "Hi" }] };
+    const { response } = await run("/v1/messages", body);
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].tools[0].eager_input_streaming, true);
+    assert.equal(seen[1].tools[0].eager_input_streaming, undefined);
+    await run("/v1/messages", body);
+    assert.equal(seen.length, 3);
+    assert.equal(seen[2].tools[0].eager_input_streaming, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    rejectedToolFields.clear();
+  }
+});
+test("a relay refusing two tool fields learns both within one request", async () => {
+  rejectedToolFields.clear();
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  let round = 0;
+  globalThis.fetch = async (url: any, init: any) => {
+    const sent = JSON.parse(init?.body as string);
+    seen.push(sent);
+    round++;
+    // First pass rejects eager_input_streaming, second rejects cache_control, third succeeds.
+    if (round === 1) return new Response(JSON.stringify({ errorCode: "INVALID_ARGUMENT",
+      parameters: { unsafeParams: "{unrecognizedProperty=eager_input_streaming}" } }), { status: 400 });
+    if (round === 2) return new Response(JSON.stringify({ errorCode: "INVALID_ARGUMENT",
+      parameters: { unsafeParams: "{unrecognizedProperty=cache_control}" } }), { status: 400 });
+    return baseFetch(url, init);
+  };
+  try {
+    const body = { model: "partner", max_tokens: 16,
+      tools: [
+        { name: "a", input_schema: { type: "object" }, eager_input_streaming: true },
+        { name: "b", input_schema: { type: "object" }, eager_input_streaming: true,
+          cache_control: { type: "ephemeral" } }
+      ],
+      messages: [{ role: "user", content: "Hi" }] };
+    const { response } = await run("/v1/messages", body);
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 3);
+    assert.equal(seen[0].tools[0].eager_input_streaming, true);
+    assert.deepEqual(seen[1].tools[1].cache_control, { type: "ephemeral" });
+    assert.equal(seen[1].tools[0].eager_input_streaming, undefined);
+    assert.equal(seen[2].tools[0].eager_input_streaming, undefined);
+    assert.equal(seen[2].tools[1].cache_control, undefined);
+    // Both lessons stick for the next request.
+    await run("/v1/messages", body);
+    assert.equal(seen.length, 4);
+    assert.equal(seen[3].tools[0].eager_input_streaming, undefined);
+    assert.equal(seen[3].tools[1].cache_control, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    rejectedToolFields.clear();
+  }
+});
+test("an unrecognized field that is not strippable is returned, not retried", async () => {
+  rejectedToolFields.clear();
+  // `strict` is contract-legal and survives normalization, so it really is on the wire.
+  // It is deliberately absent from STRIPPABLE_TOOL_FIELDS: dropping the whitelist check
+  // would strip it and retry, turning this test red.
+  const junkError = JSON.stringify({ errorCode: "INVALID_ARGUMENT",
+    parameters: { unsafeParams: "{unrecognizedProperty=strict}" }, message: "Request contained an unrecognized field" });
+  const baseFetch = globalThis.fetch;
+  let sends = 0;
+  globalThis.fetch = async () => { sends++; return new Response(junkError, { status: 400 }); };
+  try {
+    const { response } = await run("/v1/messages", { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, strict: true }],
+      messages: [{ role: "user", content: "Hi" }] });
+    assert.equal(response.status, 400);
+    assert.equal(sends, 1);
+    assert.equal(rejectedToolFields.size, 0);
+  } finally {
+    globalThis.fetch = baseFetch;
+    rejectedToolFields.clear();
+  }
+});
+test("UPSTREAM_STRIP_TOOL_FIELDS refuses to strip a tool's identity", async () => {
+  rejectedToolFields.clear();
+  // A typo here would otherwise ship a tool with no name or schema past validation.
+  env.UPSTREAM_STRIP_TOOL_FIELDS = "name, input_schema, eager_input_streaming";
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  globalThis.fetch = async (url: any, init: any) => { seen.push(JSON.parse(init?.body as string)); return baseFetch(url, init); };
+  try {
+    const { response } = await run("/v1/messages", { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, eager_input_streaming: true }],
+      messages: [{ role: "user", content: "Hi" }] });
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].tools[0].name, "t");
+    assert.deepEqual(seen[0].tools[0].input_schema, { type: "object" });
+    assert.equal(seen[0].tools[0].eager_input_streaming, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    delete env.UPSTREAM_STRIP_TOOL_FIELDS;
+    rejectedToolFields.clear();
+  }
+});
+test("UPSTREAM_STRIP_TOOL_FIELDS pre-strips before the first send, no learning 400", async () => {
+  rejectedToolFields.clear();
+  env.UPSTREAM_STRIP_TOOL_FIELDS = "eager_input_streaming, cache_control";
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  globalThis.fetch = async (url: any, init: any) => { seen.push(JSON.parse(init?.body as string)); return baseFetch(url, init); };
+  try {
+    const { response } = await run("/v1/messages", { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, eager_input_streaming: true,
+        cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: "Hi" }] });
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].tools[0].eager_input_streaming, undefined);
+    assert.equal(seen[0].tools[0].cache_control, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    delete env.UPSTREAM_STRIP_TOOL_FIELDS;
+    rejectedToolFields.clear();
   }
 });
 test("Queue failure falls back to D1; successful duplicate cannot overwrite complete record", async () => {

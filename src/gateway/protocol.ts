@@ -104,13 +104,24 @@ export function sanitizeCacheControl(body: Body, protocol: Protocol): void {
 }
 // Vertex-backed lines reject cache_control on tool definitions
 // (INVALID_ARGUMENT unrecognizedProperty=cache_control); system/user markers are fine.
-// The gateway learns this per upstream and strips only tool breakpoints there.
-export function stripToolCacheControl(body: Body): boolean {
+// Newer clients also stamp eager_input_streaming onto tool definitions; that field only
+// tunes tool-argument streaming granularity, so dropping it costs a little latency and
+// nothing else. Both are learned per upstream — see callGatewayUpstream.
+export const STRIPPABLE_TOOL_FIELDS: ReadonlySet<string> = new Set(["cache_control", "eager_input_streaming"]);
+/** A tool's identity, not a tuning knob: removing any of these ships a broken or useless tool. */
+export const PROTECTED_TOOL_FIELDS: ReadonlySet<string> = new Set(["name", "description", "input_schema", "type"]);
+/** Removing a field the tool never had reports false, so callers can tell a real retry from a no-op. */
+export function stripToolField(body: Body, field: string): boolean {
   let stripped = false;
   for (const tool of body.tools ?? []) {
-    if (object(tool) && tool.cache_control !== undefined) { delete tool.cache_control; stripped = true; }
+    if (object(tool) && tool[field] !== undefined) { delete tool[field]; stripped = true; }
   }
   return stripped;
+}
+/** Every `unrecognizedProperty=<name>` the upstream named, in its 400 detail. */
+export function rejectedFieldNames(detail: string): string[] {
+  const matches = detail.matchAll(/unrecognizedProperty=([A-Za-z_][A-Za-z0-9_]*)/g);
+  return [...new Set([...matches].map(match => match[1]))];
 }
 // Encrypted reasoning stays allowed; only server-owned history breaks request-only memory.
 export function hasServerState(body: Body, protocol: Protocol): boolean {

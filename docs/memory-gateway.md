@@ -177,11 +177,15 @@ Anthropic token counting。使用这些额外端点的客户端需要后续适�
 顶层 `cache_control` 是 Anthropic 已支持的自动缓存字段，但部分 Vertex/代理线路仍会拒绝。
 为兼容现有线路，网关把它转换成注入前最后一个可缓存块上的显式断点；已有断点保留，TTL 冲突或超过 4 个提前返回 400。
 没有顶层缓存设置就不主动添加断点。这个转换不等于保证所有上游支持同一套特性。
-工具定义上的断点同理:实测 Vertex 线路拒绝工具级 cache_control(400 unrecognizedProperty),system/user 位置正常。
-网关按「学习」处理:某条线路 400 报这个签名,剥掉工具断点重试一次,并在本 isolate 记住,之后请求预先剥除;
-支持工具断点的线路永远学不到这条,不受影响。
-为兼容现有线路，网关把它转换成注入前最后一个可缓存块上的显式断点；已有断点保留，TTL 冲突或超过 4 个提前返回 400。
-没有顶层缓存设置就不主动添加断点。这个转换不等于保证所有上游支持同一套特性。
+工具定义上的未知字段同理,网关按「学习」处理:某条线路 400 报 `unrecognizedProperty=<字段>`,
+剥掉该字段重试,并在本 isolate 按线路记住,之后请求预先剥除;支持该字段的线路永远学不到,不受影响。
+实测两种:Vertex 线路拒绝工具级 `cache_control`(system/user 位置正常);新版 Claude Code 会给每个工具
+带 `eager_input_streaming`,中转层和 Bedrock 之类不认,也走同一条学习路径 —— 该字段只调工具参数流式粒度,
+剥掉只损失一点延迟。一次 400 只报一个字段,客户端可能同时带多个,所以学习放在有界循环里,首轮最多每种字段多花一次往返。
+想不等这一次 400、每次先剥干净,在「设置 → 模型与线路」填 `UPSTREAM_STRIP_TOOL_FIELDS`(逗号分隔)。
+默认留空:那是按线路精确剥,只会影响真正拒绝它的上游,比一刀切剥所有 custom provider 更准。
+这个设置是自由文本,但工具的身份字段(`name`/`description`/`input_schema`/`type`)会被拒绝并记一条日志 ——
+`validateRequest` 在剥离之前,否则会拆坏工具再出站。
 响应头 `x-aelios-identity/memory/provider/model` 用于诊断；实际模型与 Provider 优先读取 `cf-aig-model/provider`。
 `x-aelios-normalized` 表示删除的非规范字段数量，Worker 日志列出字段路径，不记录被删除的值。
 
