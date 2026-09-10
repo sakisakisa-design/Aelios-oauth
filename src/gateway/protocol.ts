@@ -108,6 +108,8 @@ export function sanitizeCacheControl(body: Body, protocol: Protocol): void {
 // tunes tool-argument streaming granularity, so dropping it costs a little latency and
 // nothing else. Both are learned per upstream — see callGatewayUpstream.
 export const STRIPPABLE_TOOL_FIELDS: ReadonlySet<string> = new Set(["cache_control", "eager_input_streaming"]);
+/** A tool's identity, not a tuning knob: removing any of these ships a broken or useless tool. */
+export const PROTECTED_TOOL_FIELDS: ReadonlySet<string> = new Set(["name", "description", "input_schema", "type"]);
 /** Removing a field the tool never had reports false, so callers can tell a real retry from a no-op. */
 export function stripToolField(body: Body, field: string): boolean {
   let stripped = false;

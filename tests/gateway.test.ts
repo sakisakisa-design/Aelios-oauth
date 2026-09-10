@@ -488,8 +488,6 @@ test("upstream rejecting eager_input_streaming is learned the same way", async (
     await run("/v1/messages", body);
     assert.equal(seen.length, 3);
     assert.equal(seen[2].tools[0].eager_input_streaming, undefined);
-    // A field the gateway cannot strip must not trigger a blind retry.
-    assert.equal(seen.length, 3);
   } finally {
     globalThis.fetch = baseFetch;
     rejectedToolFields.clear();
@@ -537,21 +535,47 @@ test("a relay refusing two tool fields learns both within one request", async ()
     rejectedToolFields.clear();
   }
 });
-test("an unrecognized field the gateway has no stripper for is returned, not retried", async () => {
+test("an unrecognized field that is not strippable is returned, not retried", async () => {
   rejectedToolFields.clear();
+  // `strict` is contract-legal and survives normalization, so it really is on the wire.
+  // It is deliberately absent from STRIPPABLE_TOOL_FIELDS: dropping the whitelist check
+  // would strip it and retry, turning this test red.
   const junkError = JSON.stringify({ errorCode: "INVALID_ARGUMENT",
-    parameters: { unsafeParams: "{unrecognizedProperty=some_future_field}" }, message: "Request contained an unrecognized field" });
+    parameters: { unsafeParams: "{unrecognizedProperty=strict}" }, message: "Request contained an unrecognized field" });
   const baseFetch = globalThis.fetch;
   let sends = 0;
   globalThis.fetch = async () => { sends++; return new Response(junkError, { status: 400 }); };
   try {
     const { response } = await run("/v1/messages", { model: "partner", max_tokens: 16,
-      tools: [{ name: "t", input_schema: { type: "object" } }], messages: [{ role: "user", content: "Hi" }] });
+      tools: [{ name: "t", input_schema: { type: "object" }, strict: true }],
+      messages: [{ role: "user", content: "Hi" }] });
     assert.equal(response.status, 400);
     assert.equal(sends, 1);
     assert.equal(rejectedToolFields.size, 0);
   } finally {
     globalThis.fetch = baseFetch;
+    rejectedToolFields.clear();
+  }
+});
+test("UPSTREAM_STRIP_TOOL_FIELDS refuses to strip a tool's identity", async () => {
+  rejectedToolFields.clear();
+  // A typo here would otherwise ship a tool with no name or schema past validation.
+  env.UPSTREAM_STRIP_TOOL_FIELDS = "name, input_schema, eager_input_streaming";
+  const baseFetch = globalThis.fetch;
+  const seen: any[] = [];
+  globalThis.fetch = async (url: any, init: any) => { seen.push(JSON.parse(init?.body as string)); return baseFetch(url, init); };
+  try {
+    const { response } = await run("/v1/messages", { model: "partner", max_tokens: 16,
+      tools: [{ name: "t", input_schema: { type: "object" }, eager_input_streaming: true }],
+      messages: [{ role: "user", content: "Hi" }] });
+    assert.equal(response.status, 200);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].tools[0].name, "t");
+    assert.deepEqual(seen[0].tools[0].input_schema, { type: "object" });
+    assert.equal(seen[0].tools[0].eager_input_streaming, undefined);
+  } finally {
+    globalThis.fetch = baseFetch;
+    delete env.UPSTREAM_STRIP_TOOL_FIELDS;
     rejectedToolFields.clear();
   }
 });

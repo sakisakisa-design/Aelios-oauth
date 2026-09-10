@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { isMainModel, PATHS, type GatewayConfig, type Identity, type Protocol } from "./config";
-import { applyThinkingPolicy, rejectedFieldNames, sanitizeCacheControl, STRIPPABLE_TOOL_FIELDS, stripToolField, type Body } from "./protocol";
+import { applyThinkingPolicy, PROTECTED_TOOL_FIELDS, rejectedFieldNames, sanitizeCacheControl, STRIPPABLE_TOOL_FIELDS, stripToolField, type Body } from "./protocol";
 import { normalizeRequest, validateRequest } from "./request";
 
 const ACCOUNT_RE = /^[a-f0-9]{32}$/i;
@@ -145,12 +145,25 @@ export function prepareGatewayRequest(env: Env, config: GatewayConfig, identity:
 // fields are learned and stripped before every later send.
 export const rejectedToolFields = new Map<string, Set<string>>();
 
+/** Setting values already reported, so a bad one warns once per isolate, not once per request. */
+const reportedStripSettings = new Set<string>();
+
 /** Operator escape hatch: strip these before the first send and never eat the 400. */
 function preStrippedToolFields(env: Env): string[] {
-  return (env.UPSTREAM_STRIP_TOOL_FIELDS || "").split(",")
-    .map(field => field.trim())
-    .filter(field => /^[A-Za-z_][A-Za-z0-9_]*$/.test(field))
-    .slice(0, 8);
+  const raw = env.UPSTREAM_STRIP_TOOL_FIELDS?.trim();
+  if (!raw) return [];
+  const named = raw.split(",").map(field => field.trim()).filter(field => /^[A-Za-z_][A-Za-z0-9_]*$/.test(field));
+  const usable = named.filter(field => !PROTECTED_TOOL_FIELDS.has(field));
+  // The setting is free text, and validateRequest already ran, so a typo naming a tool's
+  // identity would ship a broken tool. Refuse those, and say so rather than silently
+  // honouring a shorter list than the operator wrote.
+  if (usable.length !== named.length && !reportedStripSettings.has(raw)) {
+    reportedStripSettings.add(raw);
+    console.warn("UPSTREAM_STRIP_TOOL_FIELDS skipped tool identity fields", {
+      skipped: named.filter(field => PROTECTED_TOOL_FIELDS.has(field))
+    });
+  }
+  return usable;
 }
 
 export async function callGatewayUpstream(env: Env, protocol: Protocol, original: Request,
