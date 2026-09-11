@@ -3,6 +3,7 @@ import type { Env } from "../types";
 // Everything here is editable from /admin, so Worker settings only needs the API key.
 export interface SettingSpec { name: string; label: string; hint?: string; group: string }
 export const SETTINGS: SettingSpec[] = [
+  { group: "记忆召回", name: "MEMORY_LIFECYCLE_ENABLED", label: "记忆库 v2 总闸", hint: "默认开启。填 false 回退旧路径，v2 的 boot 和召回工具会直接回未启用，不碰 v2 表" },
   { group: "记忆召回", name: "RECALL_RERANK_MIN_SCORE", label: "原文重排分数下限", hint: "默认 0.25，低于此值不注入。只是初始值，请结合下方召回记录调整；分数不是正确率，不同模型不可直接比较" },
   { group: "记忆召回", name: "RECALL_RERANK_TIMEOUT_MS", label: "原文重排最多等多久（毫秒）", hint: "默认 1500，上限 5000。超时改走词面 top-1，聊天继续；迟到结果会丢弃，但 CF 调用可能仍会完成并计费" },
   { group: "记忆召回", name: "MEMORY_RERANKER_MODEL", label: "原文重排模型", hint: "默认 @cf/baai/bge-reranker-base，通过 Worker 的 AI 绑定调用。所有来源一次批量打分，不生成记忆正文。失败时回落词面命中，不补调 LLM" },
@@ -14,7 +15,6 @@ export const SETTINGS: SettingSpec[] = [
   { group: "记忆召回", name: "MEMORY_FILTER_MIN_SCORE", label: "重排前相似度下限" },
   { group: "记忆召回", name: "MEMORY_INJECT_DECAY_FACTOR", label: "刚注入过的记忆降权", hint: "降低近期注入记忆的候选排序；最终原文重排仍按相关性排序。填 1 关闭" },
   { group: "记忆召回", name: "MEMORY_AUTHORED_BOOST", label: "亲笔记忆加成", hint: "自己写的记忆排前面。填 1 关闭" },
-  { group: "记忆召回", name: "MEMORY_LIFECYCLE_ENABLED", label: "记忆库 v2 总闸", hint: "默认开启。填 false 回退旧路径，v2 的 boot 和召回工具会直接回未启用，不碰 v2 表" },
   { group: "记忆召回", name: "RECALL_MIN_SCORE", label: "召回地板分", hint: "默认 0.15，打在降权前的原始相关性分上。调高会漏掉换了说法的记忆，调低会放进噪声；显式搜索可用 min_score 临时覆盖" },
   { group: "记忆召回", name: "RELATION_EXPANSION", label: "顺着关系边再扩一跳", hint: "默认 off。填 on 或 true 后，向量种子命中会沿关系边扩 hop1/hop2。关着时召回结果和没这个功能时逐字一致" },
   { group: "记忆召回", name: "ENABLE_MEMORY_FILTER", label: "候选过滤总闸", hint: "默认开启。填 false 后不再过滤、重排、压缩候选，命中原样注入" },
@@ -28,6 +28,7 @@ export const SETTINGS: SettingSpec[] = [
   { group: "记忆召回", name: "MEMORY_LEGACY_VECTOR_FALLBACK_LIMIT", label: "旧向量兜底条数", hint: "默认 3。老库兜底召回最多取几条" },
   { group: "记忆召回", name: "MEMORY_LEGACY_VECTOR_FALLBACK_SCORE_FACTOR", label: "旧向量兜底折扣", hint: "默认 0.45。乘在旧库命中分上，压低它和新记忆的竞争" },
 
+  { group: "Dream 与日记", name: "ENABLE_DREAM", label: "夜整总闸", hint: "默认开启。填 false 完全不跑 dream。ENABLE_DAILY_MEMORY_DIGEST 是它的旧名，只在没填本项时生效；本项一旦填了就以本项为准" },
   { group: "Dream 与日记", name: "DREAM_MODEL", label: "Dream 用的模型" },
   { group: "Dream 与日记", name: "DREAM_TIME_ZONE", label: "按哪个时区分天", hint: "例如 Asia/Singapore" },
   { group: "Dream 与日记", name: "DREAM_MAX_MESSAGES", label: "一轮读多少条对话" },
@@ -37,7 +38,6 @@ export const SETTINGS: SettingSpec[] = [
   { group: "Dream 与日记", name: "DEDUP_COSINE", label: "记忆去重相似度", hint: "越高越容易判成新记忆，越低越容易被合并" },
   { group: "Dream 与日记", name: "WEEKLY_ROLLUP_DELETE_DAILIES", label: "周记落成后自动删日志", hint: "填 false 走人工审阅，填 true 一条龙" },
   { group: "Dream 与日记", name: "CANDIDATE_JUDGE_ENABLED", label: "Dream 之后自动审核候选", hint: "默认开启。填 false 才回到全部人工批准" },
-  { group: "Dream 与日记", name: "ENABLE_DREAM", label: "夜整总闸", hint: "默认开启。填 false 完全不跑 dream。ENABLE_DAILY_MEMORY_DIGEST 是它的旧名，只在没填本项时生效；本项一旦填了就以本项为准" },
   { group: "Dream 与日记", name: "DREAM_STRATEGY", label: "新记忆写入策略", hint: "默认 upsert，直接改写。填 review 改成先进候选队列等人批" },
   { group: "Dream 与日记", name: "DREAM_NAMESPACE", label: "夜整写进哪个记忆空间", hint: "默认 default" },
   { group: "Dream 与日记", name: "ENABLE_DIARY_WRITER", label: "夜整后写叙事日记", hint: "默认开启。填 false 不写日记" },
@@ -80,6 +80,7 @@ export const SECRET_SPECS: { name: string; label: string }[] = [
   { name: "MEMORY_MCP_API_KEY", label: "MCP 密钥" },
   { name: "GUIDE_DOG_API_KEY", label: "导盲犬密钥" },
   { name: "CLOUDFLARE_API_TOKEN", label: "CF 令牌（网关上游就靠它，一把管所有）" },
+  { name: "CF_AIG_TOKEN", label: "AI Gateway 认证令牌（网关开了 authenticated gateway 才要）" },
   { name: "GITHUB_DAILY_TOKEN", label: "GitHub 日档只读 PAT" }
 ];
 
