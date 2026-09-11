@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { authenticate } from "../auth/apiKey";
-import { findIdentity, loadConfig, type Protocol } from "./config";
+import { findIdentity, loadConfig, type GatewayConfig, type Protocol } from "./config";
 import type { Body } from "./protocol";
 
 /** Anthropic gates non-Haiku OAuth traffic behind this Claude Code system prefix. */
@@ -85,7 +85,7 @@ export async function handleOauthPassthrough(
   if (!auth.ok) return passthroughError("Unauthorized", 401);
   if (!oauthToken(env)) return passthroughError("CLAUDE_OAUTH_TOKEN secret is not configured", 503);
 
-  let config;
+  let config: GatewayConfig;
   try { config = await loadConfig(env); }
   catch { return passthroughError("Gateway configuration unavailable. Apply migrations and check /admin/gateway.", 503); }
   const identity = findIdentity(config, auth, slug);
