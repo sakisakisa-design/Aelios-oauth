@@ -39,6 +39,7 @@ import { isV2Enabled, runRecall } from "../memory/v2/recall";
 
 import type { Env, KeyProfile, MemoryApiRecord } from "../types";
 import { json, openAiError } from "../utils/json";
+import { getYesterdayDateLabel } from "../memory/dreamDates";
 import { formatDateLabel } from "../utils/time";
 import {
   readBoolean,
@@ -445,11 +446,6 @@ function toCandidateApiRecord(row: MemoryCandidateRow) {
   };
 }
 
-function yesterdayDateLabel(now = new Date()): string {
-  const date = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  return date.toISOString().slice(0, 10);
-}
-
 async function countMessagesInRange(
   db: D1Database,
   input: { namespace: string; startCreatedAt: string; endCreatedAt: string }
@@ -481,7 +477,7 @@ export async function handleMemoryBoot(request: Request, env: Env): Promise<Resp
 
   const start = readString(url.searchParams.get("start")) || `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
   const end = readString(url.searchParams.get("end")) || new Date().toISOString();
-  const dailyDate = readString(url.searchParams.get("daily_date")) || yesterdayDateLabel();
+  const dailyDate = readString(url.searchParams.get("daily_date")) || getYesterdayDateLabel(readDiaryTimeZone(env));
   const [dailyLog, precious, glossary, todayMessages, todayRawCount, pendingCount, typeCounts] = await Promise.all([
     getDailyLog(env.DB, { namespace, date: dailyDate }),
     listPrecious(env.DB, { namespace, limit: 100 }),
@@ -531,7 +527,7 @@ export async function handleDiaryApi(request: Request, env: Env): Promise<Respon
 
   if (url.pathname === "/v1/diary/recent") {
     const today = formatDateLabel(new Date(), timeZone);
-    const yesterday = formatDateLabel(new Date(Date.now() - 24 * 60 * 60 * 1000), timeZone);
+    const yesterday = getYesterdayDateLabel(timeZone);
     const rows = await Promise.all([
       getDailyLog(env.DB, { namespace, date: today }),
       getDailyLog(env.DB, { namespace, date: yesterday })

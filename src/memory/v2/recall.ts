@@ -31,6 +31,8 @@ import { shapeRecallQuery } from "../queryShape";
 import { expandRecallByRelations, isRelationExpansionEnabled } from "../relations";
 import type { RelationExpansionMeta } from "../relations";
 import { loadSpontaneousForBoot } from "../perception";
+import { getYesterdayDateLabel } from "../dreamDates";
+import { readDreamTimeZone } from "../dreamEnv";
 import { formatDateLabel } from "../../utils/time";
 import type { Env, PerceptionCacheItem } from "../../types";
 
@@ -205,9 +207,8 @@ export async function buildBootPackage(
     return cached.value;
   }
 
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const bootTimeZone = env.DREAM_TIME_ZONE || "Asia/Shanghai";
-  const yesterdayLabel = formatDateLabel(yesterday, bootTimeZone);
+  const bootTimeZone = readDreamTimeZone(env);
+  const yesterdayLabel = getYesterdayDateLabel(bootTimeZone);
 
   const [preciousRows, allGlossary, dailyLog, weeklyRows, monthlyRows, spontaneous] = await Promise.all([
     input.preciousRows
@@ -614,7 +615,7 @@ export async function collectWeekBlocks(
     excludeWeeks?: string[];
   }
 ): Promise<RecallWeekBlock[]> {
-  const timeZone = env.DREAM_TIME_ZONE || "Asia/Shanghai";
+  const timeZone = readDreamTimeZone(env);
 
   const seedsByWeek = new Map<string, string[]>();
   for (const hit of input.hits) {

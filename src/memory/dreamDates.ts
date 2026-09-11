@@ -3,7 +3,20 @@ import { formatDateLabel } from "../utils/time";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export function getTargetDigestDateLabel(timeZone: string, now = new Date()): string {
-  return formatDateLabel(new Date(now.getTime() - ONE_DAY_MS), timeZone);
+  return getYesterdayDateLabel(timeZone, now);
+}
+
+/**
+ * Calendar yesterday in `timeZone`.
+ *
+ * `now - 24h` is a different thing. After a DST step (or any offset change) subtracting
+ * a fixed day lands on the wrong date for the hours around local midnight: at local
+ * 00:30 on the day after a spring-forward, 24 hours earlier is still the day before
+ * yesterday. Add a day to the label's own noon instead — the arithmetic
+ * `addDaysToDateLabel` already uses.
+ */
+export function getYesterdayDateLabel(timeZone: string, now = new Date()): string {
+  return addDaysToDateLabel(formatDateLabel(now, timeZone), -1, timeZone);
 }
 
 export function getDateLabelsLookback(dateLabel: string, count: number, timeZone: string): string[] {
