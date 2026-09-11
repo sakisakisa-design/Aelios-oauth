@@ -1,16 +1,9 @@
+import { formatDateLabel } from "../utils/time";
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-function formatDate(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(date);
-}
-
 export function getTargetDigestDateLabel(timeZone: string, now = new Date()): string {
-  return formatDate(new Date(now.getTime() - ONE_DAY_MS), timeZone);
+  return formatDateLabel(new Date(now.getTime() - ONE_DAY_MS), timeZone);
 }
 
 export function getDateLabelsLookback(dateLabel: string, count: number, timeZone: string): string[] {
@@ -21,12 +14,17 @@ export function getDateLabelsLookback(dateLabel: string, count: number, timeZone
   return labels;
 }
 
-function parseDateLabel(dateLabel: string): { year: number; month: number; day: number } {
-  const [year, month, day] = dateLabel.split("-").map((value) => Number(value));
-  if (!year || !month || !day) {
-    throw new Error(`Invalid date label: ${dateLabel}`);
-  }
-  return { year, month, day };
+/**
+ * Accepts both `YYYY-MM-DD` and the `M/D/YYYY` a locale-formatted label can produce
+ * on a runtime without ISO-shaped locale data, so a stale label is read rather than
+ * throwing. Labels written since the `formatDateLabel` change are always ISO.
+ */
+export function parseDateLabel(dateLabel: string): { year: number; month: number; day: number } {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(dateLabel);
+  if (iso) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dateLabel);
+  if (us) return { year: Number(us[3]), month: Number(us[1]), day: Number(us[2]) };
+  throw new Error(`Invalid date label: ${dateLabel}`);
 }
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
@@ -86,7 +84,7 @@ export function addDaysToDateLabel(dateLabel: string, days: number, timeZone: st
     second: 0,
     timeZone
   });
-  return formatDate(new Date(localNoonUtc.getTime() + days * ONE_DAY_MS), timeZone);
+  return formatDateLabel(new Date(localNoonUtc.getTime() + days * ONE_DAY_MS), timeZone);
 }
 
 export function getDateRangeForLabel(dateLabel: string, timeZone: string): { startIso: string; endIso: string } {

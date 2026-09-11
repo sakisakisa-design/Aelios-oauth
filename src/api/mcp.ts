@@ -30,6 +30,7 @@ import {
 
 import type { Env, KeyProfile, Scope } from "../types";
 import { json } from "../utils/json";
+import { formatDateLabel } from "../utils/time";
 import {
   isRecord,
   readBoolean,
@@ -694,18 +695,8 @@ async function callTool(
       if (!weekly) return textToolResult({ data: null });
       return textToolResult({ data: withImpressionDisclaimer({ ...weekly, note: "daily rolled into weekly" }) });
     }
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(new Date());
-    const yesterday = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const today = formatDateLabel(new Date(), timeZone);
+    const yesterday = formatDateLabel(new Date(Date.now() - 24 * 60 * 60 * 1000), timeZone);
     const rows = await Promise.all([
       getDailyLog(env.DB, { namespace, date: today }),
       getDailyLog(env.DB, { namespace, date: yesterday })

@@ -31,6 +31,7 @@ import { shapeRecallQuery } from "../queryShape";
 import { expandRecallByRelations, isRelationExpansionEnabled } from "../relations";
 import type { RelationExpansionMeta } from "../relations";
 import { loadSpontaneousForBoot } from "../perception";
+import { formatDateLabel } from "../../utils/time";
 import type { Env, PerceptionCacheItem } from "../../types";
 
 // --- 开关 ---
@@ -87,12 +88,7 @@ function weekBlockLimit(env: Env): number {
 function dateLabelInTimeZone(iso: string, timeZone: string): string | null {
   const ts = Date.parse(iso);
   if (!Number.isFinite(ts)) return null;
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date(ts));
+  return formatDateLabel(new Date(ts), timeZone);
 }
 
 function decayForLastInjected(
@@ -211,10 +207,7 @@ export async function buildBootPackage(
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const bootTimeZone = env.DREAM_TIME_ZONE || "Asia/Shanghai";
-  const yesterdayLabel = new Intl.DateTimeFormat("en-CA", {
-    timeZone: bootTimeZone,
-    year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(yesterday);
+  const yesterdayLabel = formatDateLabel(yesterday, bootTimeZone);
 
   const [preciousRows, allGlossary, dailyLog, weeklyRows, monthlyRows, spontaneous] = await Promise.all([
     input.preciousRows

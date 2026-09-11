@@ -39,6 +39,7 @@ import { isV2Enabled, runRecall } from "../memory/v2/recall";
 
 import type { Env, KeyProfile, MemoryApiRecord } from "../types";
 import { json, openAiError } from "../utils/json";
+import { formatDateLabel } from "../utils/time";
 import {
   readBoolean,
   readJsonObject,
@@ -510,15 +511,6 @@ export async function handleMemoryBoot(request: Request, env: Env): Promise<Resp
       }
     }
   });
-}
-
-function formatDateLabel(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(date);
 }
 
 function readDiaryTimeZone(env: Env): string {

@@ -14,6 +14,7 @@ import {
 import { readDreamTimeZoneFromEnv } from "./dreamEnv";
 import { getMondayOfIsoWeek } from "./weeklyRollup";
 import { extractJsonObject, readString } from "../utils/parse";
+import { formatDateLabel } from "../utils/time";
 import { loadSpeakersForNamespace, rollupSpeakerRule, type DreamSpeakers } from "./speakers";
 
 const DEFAULT_TIME_ZONE = "Asia/Shanghai";
@@ -74,12 +75,7 @@ function readRollupMaxTokens(env: Env): number {
 }
 
 function formatTodayDateLabel(timeZone: string, now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(now);
+  return formatDateLabel(now, timeZone);
 }
 
 function getCutoffDateLabel(todayLabel: string, timeZone: string): string {
