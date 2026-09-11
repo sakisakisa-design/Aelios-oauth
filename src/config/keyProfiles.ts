@@ -5,8 +5,6 @@ export const KEY_PROFILES = {
     source: "chatbox",
     namespace: "default",
     scopes: ["chat:proxy", "memory:read", "memory:write", "cache:read", "cache:write"],
-    injectionMode: "rag",
-    memoryMode: "external",
     allowModelPassthrough: false,
     debug: false
   },
@@ -14,8 +12,6 @@ export const KEY_PROFILES = {
     source: "im",
     namespace: "default",
     scopes: ["chat:proxy", "memory:read", "memory:write", "cache:read"],
-    injectionMode: "rag",
-    memoryMode: "external",
     allowModelPassthrough: false,
     debug: false
   },
@@ -23,8 +19,6 @@ export const KEY_PROFILES = {
     source: "debug",
     namespace: "default",
     scopes: ["chat:proxy", "memory:read", "memory:write", "cache:read", "cache:write", "debug:read", "export:read"],
-    injectionMode: "full",
-    memoryMode: "hybrid",
     allowModelPassthrough: true,
     debug: true
   },
@@ -32,8 +26,6 @@ export const KEY_PROFILES = {
     source: "mcp",
     namespace: "default",
     scopes: ["memory:read", "memory:write", "export:read"],
-    injectionMode: "none",
-    memoryMode: "builtin",
     allowModelPassthrough: false,
     debug: false
   },
@@ -41,8 +33,6 @@ export const KEY_PROFILES = {
     source: "guide-dog",
     namespace: "default",
     scopes: ["chat:proxy"],
-    injectionMode: "none",
-    memoryMode: "none",
     allowModelPassthrough: false,
     debug: false
   }

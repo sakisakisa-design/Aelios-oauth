@@ -9,6 +9,7 @@ import {
 } from "../db/v2";
 import type { Env, PerceptionCacheItem } from "../types";
 import { containsSecret, redactEnvValues, redactSecrets } from "../utils/redact";
+import { formatDateLabel } from "../utils/time";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MIN_IMPORTANCE = 0.75;
@@ -98,12 +99,7 @@ export async function loadSpontaneousForBoot(
   const timeZone = input.timeZone || "Asia/Shanghai";
   const dateLabel =
     input.dateLabel ||
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(new Date());
+    formatDateLabel(new Date(), timeZone);
 
   // Prefer today; if dream wrote for "yesterday" label relative to dream cron, also try yesterday.
   const today = await getPerceptionCache(env.DB, { namespace: input.namespace, date: dateLabel });

@@ -11,10 +11,11 @@ import { callModelWithRetry, ModelCallError, readModelName } from "../utils/mode
 import {
   addDaysToDateLabel,
   getDateLabelsLookback,
-  getDateRangeForLabel
+  parseDateLabel
 } from "./dreamDates";
 import { readDreamTimeZoneFromEnv } from "./dreamEnv";
 import { extractJsonObject, readString } from "../utils/parse";
+import { formatDateLabel } from "../utils/time";
 import { loadSpeakersForNamespace, rollupSpeakerRule, type DreamSpeakers } from "./speakers";
 
 const DEFAULT_TIME_ZONE = "Asia/Singapore";
@@ -89,27 +90,22 @@ function readRollupMaxTokens(env: Env): number {
 }
 
 function formatTodayDateLabel(timeZone: string, now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(now);
+  return formatDateLabel(now, timeZone);
 }
 
 function getCutoffDateLabel(todayLabel: string, timeZone: string): string {
   return getDateLabelsLookback(todayLabel, 8, timeZone)[7] ?? todayLabel;
 }
 
-function getDayOfWeekMonday0(dateLabel: string, timeZone: string): number {
-  const { startIso } = getDateRangeForLabel(dateLabel, timeZone);
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(new Date(startIso));
-  const map: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-  return map[weekday] ?? 0;
+/** Weekday of a date label, Monday = 0. Arithmetic on the label's own calendar date,
+ *  so it never depends on the runtime rendering localized weekday names. */
+function getDayOfWeekMonday0(dateLabel: string): number {
+  const { year, month, day } = parseDateLabel(dateLabel);
+  return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
 }
 
 export function getMondayOfIsoWeek(dateLabel: string, timeZone: string): string {
-  const dayIndex = getDayOfWeekMonday0(dateLabel, timeZone);
+  const dayIndex = getDayOfWeekMonday0(dateLabel);
   return getDateLabelsLookback(dateLabel, dayIndex + 1, timeZone)[dayIndex] ?? dateLabel;
 }
 
