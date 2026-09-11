@@ -122,15 +122,11 @@ export type Scope =
   | "debug:read"
   | "export:read";
 
-export type InjectionMode = "rag" | "full" | "hybrid" | "none";
-export type MemoryMode = "external" | "builtin" | "hybrid" | "none";
 
 export interface KeyProfile {
   source: string;
   namespace: string;
   scopes: Scope[];
-  injectionMode: InjectionMode;
-  memoryMode: MemoryMode;
   allowModelPassthrough: boolean;
   debug: boolean;
 }
