@@ -14,6 +14,8 @@ import {
 import { readDreamTimeZoneFromEnv } from "./dreamEnv";
 import { getMondayOfIsoWeek } from "./weeklyRollup";
 import { extractJsonObject, readString } from "../utils/parse";
+import { formatDateLabel } from "../utils/time";
+import { loadSpeakersForNamespace, rollupSpeakerRule, type DreamSpeakers } from "./speakers";
 
 const DEFAULT_TIME_ZONE = "Asia/Shanghai";
 const DEFAULT_DREAM_MODEL = "workers-ai/@cf/openai/gpt-oss-120b";
@@ -73,12 +75,7 @@ function readRollupMaxTokens(env: Env): number {
 }
 
 function formatTodayDateLabel(timeZone: string, now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(now);
+  return formatDateLabel(now, timeZone);
 }
 
 function getCutoffDateLabel(todayLabel: string, timeZone: string): string {
@@ -100,10 +97,11 @@ function normalizeMonthlyRollupResult(value: unknown): MonthlyRollupModelResult 
   return { title, summary };
 }
 
-function buildMonthlyRollupPrompt(input: {
+export function buildMonthlyRollupPrompt(input: {
   month: string;
   weeklyLogs: Array<{ week: string; title: string; summary: string }>;
   existingMonthly?: { title: string; summary: string } | null;
+  speakers?: DreamSpeakers | null;
 }): string {
   const weekLines = input.weeklyLogs
     .map((row) => `- ${row.week} | ${row.title}\n  ${row.summary}`)
@@ -117,7 +115,7 @@ function buildMonthlyRollupPrompt(input: {
     "- 只保留宽泛主题和关系氛围，不要精确数字、引语、工具名或私密细节。",
     "- summary 是 2-3 句自然中文月度印象。",
     "- title 是 12 字以内的月标题。",
-    "- 站在「我=助手」视角；关于用户用「你」，关于助手承诺用「我需要」。",
+    rollupSpeakerRule(input.speakers ?? null),
     "- 不要提到 D1、Vectorize、RAG、数据库、记忆系统、代理层等实现细节。",
     "",
     `月份：${input.month}`,
@@ -241,7 +239,8 @@ async function processMonth(
     weeklyLogs: weeklyLogs.map((row) => ({ week: row.week, title: row.title, summary: row.summary })),
     existingMonthly: existingMonthly
       ? { title: existingMonthly.title, summary: existingMonthly.summary }
-      : null
+      : null,
+    speakers: await loadSpeakersForNamespace(env, namespace)
   });
   const modelResult = await callMonthlyRollupModel(env, prompt, {
     month,

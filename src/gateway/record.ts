@@ -3,6 +3,7 @@ import { upsertMessageFts } from "../memory/fts";
 import { captureRememberNow } from "../memory/rememberNow";
 import { sha256Hex } from "../utils/hash";
 import { getSseData, splitSseEvents } from "../utils/sseParser";
+import { cleanMessageText } from "../utils/sanitize";
 import { identityNamespace, object, type Identity, type Protocol } from "./config";
 import { canonical, inputItems, visibleText, type Body, type Turn } from "./protocol";
 
@@ -32,11 +33,11 @@ export async function prepareExchange(request: Request, body: Body, identity: Id
     request.headers.get("x-session-id") || body.metadata?.session_id || "unscoped";
   const namespace = identityNamespace(identity);
   const scope = canonical([namespace, identity.slug, source, session]);
-  const conversationId = "gw_" + await sha256Hex(scope);
+  const conversationId = `gw_${await sha256Hex(scope)}`;
   const prefix = inputItems(body, protocol).slice(0, turn.index + 1);
-  const userId = "gw_user_" + await sha256Hex(canonical([scope, protocol, prefix]));
-  const id = "gw_req_" + await sha256Hex(canonical([scope, protocol, turn.kind, body,
-    request.headers.get("x-aelios-request-id") || ""]));
+  const userId = `gw_user_${await sha256Hex(canonical([scope, protocol, prefix]))}`;
+  const id = `gw_req_${await sha256Hex(canonical([scope, protocol, turn.kind, body,
+    request.headers.get("x-aelios-request-id") || ""]))}`;
   return { type: "gateway_exchange", id, userId, namespace, profile: identity.slug,
     conversationId, protocol, kind: turn.kind, userText: turn.text.slice(0, TEXT_LIMIT), assistantText: "",
     model: "", provider: "", httpStatus: 0, completion: turn.text.length > TEXT_LIMIT ? "truncated" : "incomplete",
@@ -44,6 +45,7 @@ export async function prepareExchange(request: Request, body: Body, identity: Id
 }
 
 export async function persistExchange(env: Env, e: GatewayExchange): Promise<void> {
+  const spoken = cleanMessageText(e.assistantText);
   const statements = [env.DB.prepare(`INSERT INTO gateway_exchanges
     (id, namespace, profile, conversation_id, protocol, kind, user_text, assistant_text,
      upstream_model, upstream_provider, http_status, completion_status, created_at)
@@ -52,31 +54,31 @@ export async function persistExchange(env: Env, e: GatewayExchange): Promise<voi
       upstream_model = excluded.upstream_model, upstream_provider = excluded.upstream_provider,
       http_status = excluded.http_status, completion_status = excluded.completion_status
     WHERE gateway_exchanges.completion_status != 'complete'`)
-    .bind(e.id, e.namespace, e.profile, e.conversationId, e.protocol, e.kind, e.userText, e.assistantText,
+    .bind(e.id, e.namespace, e.profile, e.conversationId, e.protocol, e.kind, e.userText, spoken,
       e.model, e.provider, e.httpStatus, e.completion, e.createdAt)];
   // Auxiliary tasks and incomplete outputs never become relationship memories.
   if (e.kind !== "auxiliary") {
-    statements.push(env.DB.prepare(`INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+    statements.push(env.DB.prepare("INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)")
       .bind(e.conversationId, e.namespace, e.createdAt, e.createdAt));
     const addMessage = (id: string, role: string, content: string, seq: number) => statements.push(env.DB.prepare(`INSERT OR IGNORE INTO messages
       (id, conversation_id, namespace, role, content, source, client_message_hash, upstream_model,
        upstream_provider, request_model, stream, finish_reason, created_at, seq)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, e.conversationId, e.namespace, role, content, "gateway:" + e.profile, id,
+      .bind(id, e.conversationId, e.namespace, role, content, `gateway:${e.profile}`, id,
         e.model, e.provider, e.profile, e.stream ? 1 : 0, e.completion, e.createdAt, seq));
     if (e.kind === "human" && e.userText && e.completion !== "truncated") addMessage(e.userId, "user", e.userText, 0);
-    if (e.completion === "complete" && e.assistantText) addMessage(e.id + ":assistant", "assistant", e.assistantText, 1);
+    if (e.completion === "complete" && spoken) addMessage(`${e.id}:assistant`, "assistant", spoken, 1);
   }
   await env.DB.batch(statements);
   if (e.kind !== "auxiliary") {
     if (e.kind === "human" && e.userText && e.completion !== "truncated") {
       await upsertMessageFts(env.DB, { namespace: e.namespace, messageId: e.userId, content: e.userText });
     }
-    if (e.completion === "complete" && e.assistantText) {
+    if (e.completion === "complete" && spoken) {
       await upsertMessageFts(env.DB, {
         namespace: e.namespace,
-        messageId: e.id + ":assistant",
-        content: e.assistantText
+        messageId: `${e.id}:assistant`,
+        content: spoken
       });
     }
   }
@@ -108,13 +110,13 @@ export async function persistHumanUtterance(
     return { saved: false, indexed: false, remember: { wrote: false } };
   }
   await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+    env.DB.prepare("INSERT OR IGNORE INTO conversations (id, namespace, created_at, updated_at) VALUES (?, ?, ?, ?)")
       .bind(e.conversationId, e.namespace, e.createdAt, e.createdAt),
     env.DB.prepare(`INSERT OR IGNORE INTO messages
       (id, conversation_id, namespace, role, content, source, client_message_hash, upstream_model,
        upstream_provider, request_model, stream, finish_reason, created_at, seq)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(e.userId, e.conversationId, e.namespace, "user", e.userText, "gateway:" + e.profile, e.userId,
+      .bind(e.userId, e.conversationId, e.namespace, "user", e.userText, `gateway:${e.profile}`, e.userId,
         e.model, e.provider, e.profile, e.stream ? 1 : 0, e.completion, e.createdAt, 0)
   ]);
   const indexed = await upsertMessageFts(env.DB, {
@@ -142,6 +144,24 @@ export async function dispatchExchange(env: Env, exchange: GatewayExchange): Pro
   await persistExchange(env, exchange);
 }
 
+/** Model-generated tool call as stored speech. Tool *results* never go through here. */
+export function formatToolCall(name: string, input: unknown): string {
+  const label = String(name || "tool").trim() || "tool";
+  const value = coerceToolInput(input);
+  if (value == null || value === "") return label;
+  if (typeof value === "string") return `${label} ${value}`;
+  try { return `${label} ${JSON.stringify(value)}`; }
+  catch { return label; }
+}
+
+function coerceToolInput(input: unknown): unknown {
+  if (typeof input !== "string") return input;
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  try { return JSON.parse(trimmed); }
+  catch { return trimmed; }
+}
+
 export class OutputCollector {
   text = "";
   complete = false;
@@ -150,11 +170,36 @@ export class OutputCollector {
   model = "";
   private rest = "";
   private decoder = new TextDecoder();
+  private pending = new Map<number, { name: string; json: string }>();
+  private chatTools = new Map<number, { name: string; json: string }>();
+  private sealed = false;
   constructor(readonly protocol: Protocol) {}
   private append(text: unknown): void {
     if (typeof text !== "string") return;
     if (this.text.length + text.length > TEXT_LIMIT) this.truncated = true;
     this.text = (this.text + text).slice(0, TEXT_LIMIT);
+  }
+  private appendTool(name: string, input: unknown): void {
+    const line = formatToolCall(name, input);
+    if (!line) return;
+    if (this.text && !this.text.endsWith("\n")) this.append("\n");
+    this.append(`${line}\n`);
+  }
+  private notePending(index: number, name: string, json = ""): void {
+    const existing = this.pending.get(index) || { name: "", json: "" };
+    if (name) existing.name = name;
+    if (json) existing.json += json;
+    this.pending.set(index, existing);
+  }
+  private flushPending(): void {
+    for (const [, tool] of [...this.pending.entries()].sort((a, b) => a[0] - b[0])) {
+      this.appendTool(tool.name, tool.json);
+    }
+    this.pending.clear();
+    for (const [, tool] of [...this.chatTools.entries()].sort((a, b) => a[0] - b[0])) {
+      this.appendTool(tool.name, tool.json);
+    }
+    this.chatTools.clear();
   }
   json(data: unknown): void {
     if (!object(data)) return;
@@ -162,13 +207,25 @@ export class OutputCollector {
     if (this.protocol === "chat") {
       const first = data.choices?.find((c: Body) => c.index === 0) || data.choices?.[0];
       this.append(visibleText(first?.message?.content));
+      for (const call of first?.message?.tool_calls || []) {
+        this.appendTool(call.function?.name || call.name, call.function?.arguments ?? call.arguments);
+      }
       this.complete = !!first?.finish_reason && !["length", "content_filter"].includes(first.finish_reason);
     } else if (this.protocol === "messages") {
-      this.append(visibleText(data.content));
+      for (const block of Array.isArray(data.content) ? data.content : []) {
+        if (!object(block)) continue;
+        if (block.type === "text" && typeof block.text === "string") this.append(block.text);
+        if (block.type === "tool_use") this.appendTool(block.name, block.input);
+      }
       this.complete = !!data.stop_reason && !["max_tokens", "refusal"].includes(data.stop_reason);
     } else {
-      this.append((data.output || []).filter((x: Body) => x.type === "message" && x.role === "assistant")
-        .map((x: Body) => visibleText(x.content)).join("\n"));
+      for (const item of data.output || []) {
+        if (!object(item)) continue;
+        if (item.type === "message" && item.role === "assistant") this.append(visibleText(item.content));
+        if (item.type === "function_call" || item.type === "custom_tool_call") {
+          this.appendTool(item.name, item.arguments ?? item.input);
+        }
+      }
       this.complete = data.status === "completed";
     }
     this.failed = !!data.error || data.status === "failed";
@@ -190,17 +247,45 @@ export class OutputCollector {
     if (this.protocol === "chat") {
       const c = data.choices?.find((choice: Body) => choice.index === 0);
       this.append(c?.delta?.content);
+      for (const call of c?.delta?.tool_calls || []) {
+        const index = typeof call.index === "number" ? call.index : 0;
+        const buf = this.chatTools.get(index) || { name: "", json: "" };
+        if (call.function?.name) buf.name += call.function.name;
+        if (typeof call.function?.arguments === "string") buf.json += call.function.arguments;
+        if (typeof call.name === "string" && !call.function?.name) buf.name += call.name;
+        this.chatTools.set(index, buf);
+      }
       if (c?.finish_reason) this.complete = !["length", "content_filter"].includes(c.finish_reason);
     } else if (this.protocol === "messages") {
       if (data.type === "message_start" && data.message?.model) this.model = data.message.model;
       if (data.type === "content_block_start" && data.content_block?.type === "text") this.append(data.content_block.text);
       if (data.type === "content_block_delta" && data.delta?.type === "text_delta") this.append(data.delta.text);
+      if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
+        this.notePending(data.index, data.content_block.name || "tool");
+      }
+      if (data.type === "content_block_delta" && data.delta?.type === "input_json_delta") {
+        this.notePending(data.index, "", data.delta.partial_json || "");
+      }
+      if (data.type === "content_block_stop" && this.pending.has(data.index)) {
+        const tool = this.pending.get(data.index)!;
+        this.pending.delete(data.index);
+        this.appendTool(tool.name, tool.json);
+      }
       if (data.type === "message_delta" && ["max_tokens", "refusal"].includes(data.delta?.stop_reason)) this.failed = true;
       if (data.type === "message_stop") this.complete = !this.failed;
     } else {
       if (data.type === "response.output_text.delta") this.append(data.delta);
+      if (data.type === "response.function_call_arguments.delta" && typeof data.delta === "string") {
+        this.notePending(typeof data.output_index === "number" ? data.output_index : 0, "", data.delta);
+      }
+      if (data.type === "response.output_item.added" && object(data.item) &&
+          (data.item.type === "function_call" || data.item.type === "custom_tool_call")) {
+        this.notePending(typeof data.output_index === "number" ? data.output_index : 0, data.item.name || "tool",
+          typeof data.item.arguments === "string" ? data.item.arguments : "");
+      }
       if (["response.completed", "response.incomplete", "response.failed"].includes(data.type)) {
         const streamed = this.text;
+        this.pending.clear();
         this.text = "";
         this.json(data.response);
         if (!this.text) this.text = streamed;
@@ -211,6 +296,10 @@ export class OutputCollector {
     this.rest += this.decoder.decode();
     if (this.rest.trim()) this.event(this.rest);
     this.rest = "";
+    this.flushPending();
+    if (this.sealed) return;
+    this.sealed = true;
+    this.text = cleanMessageText(this.text);
   }
 }
 
@@ -228,7 +317,10 @@ export function observeResponse(upstream: Response, protocol: Protocol, ctx: Exe
     done = true;
     try {
       if (sse) collector.finish();
-      else if (!collector.truncated) collector.json(JSON.parse(json + decoder.decode()));
+      else if (!collector.truncated) {
+        collector.json(JSON.parse(json + decoder.decode()));
+        collector.finish();
+      }
     } catch { collector.failed = true; }
     ctx.waitUntil(onFinish(collector, interrupted).catch(() => console.error("gateway exchange recording failed")));
   };

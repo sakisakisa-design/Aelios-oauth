@@ -23,6 +23,10 @@ export interface Identity {
   models: string[];
   anthropicThinking?: "passthrough" | "drop_block";
   maxMemoryChars?: number;
+  /** 用户显示名。Dream / 日记 / 周月卷 / 审核写事实时用这个名字，不要写 user/用户。 */
+  userName?: string;
+  /** 助手显示名。Dream / 日记 / 周月卷 / 审核写事实时用这个名字，不要写 assistant/助手。空则回退到 slug。 */
+  assistantName?: string;
 }
 export interface GatewayConfig {
   version: 3;
@@ -30,6 +34,8 @@ export interface GatewayConfig {
   identities: Identity[];
   settings?: Record<string, string>;
 }
+/** The guard that opens untrusted JSON up for every caller; see the note on `Body` in protocol.ts. */
+// biome-ignore lint/suspicious/noExplicitAny: see above
 export function object(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -75,6 +81,10 @@ export function validateConfig(value: unknown): GatewayConfig {
       `${where}: models must be an array of at most 64 model names`);
     check(identity.anthropicThinking === undefined || ["passthrough", "drop_block"].includes(identity.anthropicThinking), `${where}: invalid anthropicThinking`);
     check(identity.maxMemoryChars === undefined || Number.isInteger(identity.maxMemoryChars) && identity.maxMemoryChars >= 256 && identity.maxMemoryChars <= 24000, `${where}: maxMemoryChars must be 256–24000`);
+    check(identity.userName === undefined || text(identity.userName) && identity.userName.trim().length <= 32 && !/[\r\n]/.test(identity.userName),
+      `${where}: userName must be text (max 32 characters)`);
+    check(identity.assistantName === undefined || text(identity.assistantName) && identity.assistantName.trim().length <= 32 && !/[\r\n]/.test(identity.assistantName),
+      `${where}: assistantName must be text (max 32 characters)`);
   }
   return value as unknown as GatewayConfig;
 }
@@ -113,6 +123,28 @@ export function identityNamespace(identity: Identity): string {
 }
 export function identityReadNamespaces(identity: Identity): string[] {
   return identity.readNamespaces ?? [identityNamespace(identity)];
+}
+
+export type DreamSpeakers = {
+  userName: string;
+  assistantName: string;
+};
+
+/** 写记忆/日记用的说话人名字。没填用户名则返回 null，回退到旧的「你/我」。 */
+export function identitySpeakers(identity: Identity | undefined): DreamSpeakers | null {
+  if (!identity) return null;
+  const userName = identity.userName?.trim();
+  if (!userName) return null;
+  return {
+    userName,
+    assistantName: identity.assistantName?.trim() || identity.slug
+  };
+}
+
+export function speakersForNamespace(config: GatewayConfig, namespace: string): DreamSpeakers | null {
+  const named = config.identities.find((identity) =>
+    identityNamespace(identity) === namespace && Boolean(identity.userName?.trim()));
+  return identitySpeakers(named);
 }
 export function matchGlob(pattern: string, value: string): boolean {
   const source = pattern.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");

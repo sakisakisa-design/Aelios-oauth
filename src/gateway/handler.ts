@@ -1,16 +1,16 @@
 import { authenticate } from "../auth/apiKey";
 import { markMemoriesInjected, listPrecious } from "../db/v2";
 import { recallInjectionBudget } from "../memory/filter";
-import { IMPRESSION_DISCLAIMER } from "../memory/impression";
 import { isEvidenceQuery, isPreciousRelevant, isTemporalQuery, selectRelevantPrecious, shapeRecallQuery } from "../memory/queryShape";
-import { formatQuote, keepUncoveredQuotes, searchQuotes } from "../memory/quotes";
+import { selectRecall } from "../memory/recallSelector";
+import { searchQuotes } from "../memory/quotes";
 import { assembleRecallSurface, type SurfaceEntry } from "../memory/surface";
 import { buildCoreFingerprint, runRecall } from "../memory/v2/recall";
 import type { Env } from "../types";
 import { newId } from "../utils/ids";
 import { nowIso } from "../utils/time";
 import { cleanMessageText } from "../utils/sanitize";
-import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type Identity, type Protocol } from "./config";
+import { findIdentity, identityNamespace, identityReadNamespaces, isMainModel, loadConfig, type GatewayConfig, type Identity, type Protocol } from "./config";
 import { appendMemory, classifyTurn, hasServerState, inputItems, recentHumanTexts, validateBody, visibleText, type Body } from "./protocol";
 import { RequestContractError } from "./request";
 import { dispatchExchange, persistHumanUtterance, observeResponse, prepareExchange } from "./record";
@@ -31,16 +31,16 @@ function memoryKind(source: string | null | undefined, type: string, authoredBy?
 export async function recallPatch(
   env: Env,
   identity: Identity,
-  query: string,
+  rawQuery: string,
   ctx: ExecutionContext,
-  recent: string[] = [],
+  rawRecent: string[] = [],
   options: { excludeMessageIds?: string[]; recallId?: string; excludeVisibleIn?: string } = {}
 ): Promise<string> {
   const namespace = identityNamespace(identity);
   const namespaces = identityReadNamespaces(identity);
   const recallId = options.recallId ?? newId("rcl");
-  query = cleanMessageText(query);
-  recent = recent.map((text) => cleanMessageText(text)).filter(Boolean);
+  const query = cleanMessageText(rawQuery);
+  const recent = rawRecent.map((text) => cleanMessageText(text)).filter(Boolean);
   if (!query) {
     console.log("gateway recall decision", { recall_id: recallId, identity: identity.slug, injected: 0,
       reason: "no_user_speech" });
@@ -60,13 +60,14 @@ export async function recallPatch(
     const precious = await listPrecious(env.DB, { namespace, limit: 80 });
     const relevantPrecious = selectRelevantPrecious(precious, shaped.lexicalTokens);
     const [recall, quotes] = await Promise.all([
-      runRecall(env, {
+      runRecall({ ...env, ENABLE_MEMORY_RERANKER: "false" }, {
         namespace,
         query,
         recent,
         k: 12,
-        core_fingerprint: buildCoreFingerprint(relevantPrecious.map(p => p.content)),
+        core_fingerprint: buildCoreFingerprint([]),
         skip_inject_mark: true,
+        grounded: false,
         attach_week_blocks: temporal,
         waitUntil: promise => ctx.waitUntil(promise.catch(() => console.error("gateway recall accounting failed")))
       }),
@@ -89,51 +90,43 @@ export async function recallPatch(
       : [];
 
     const regularHits = recall.hits;
-    const { kept: uncoveredQuotes, dropped: coveredQuotes } = keepUncoveredQuotes(
-      quotes,
-      [...relevantPrecious.map((row) => row.content), ...regularHits.map((hit) => hit.content)]
-    );
-    const quoteEntries = uncoveredQuotes.map((hit) => ({
-      kind: "quote",
-      content: formatQuote(hit, { compact: !evidence }),
-      id: hit.id,
-      excerpt: hit.excerpt,
-      sourceIds: hit.source_ids
+    const quoteEntries = quotes.map(hit => ({
+      kind: "quote", content: hit.content, id: hit.id, sourceIds: hit.source_ids,
+      speaker: hit.role, recordedDate: hit.created_at
     }));
     const droppedPrecious = precious
       .filter((row) => !relevantPrecious.some((kept) => kept.id === row.id))
       .slice(0, 12);
     const entries: SurfaceEntry[] = [
       ...quoteEntries,
-      ...relevantPrecious.map(p => ({ kind: "precious", content: p.content, id: p.id })),
-      ...recall.glossary_hits.map(p => ({ kind: "glossary", content: `${p.term}: ${p.definition}` })),
-      ...regularHits.map(p => ({ kind: memoryKind(p.source, p.type, p.authored_by), content: p.content, id: p.id })),
-      ...weekBlocks.map(p => ({ kind: "impression", content: `${IMPRESSION_DISCLAIMER} ${p.week}: ${p.summary}` }))
+      ...relevantPrecious.map(p => ({ kind: "precious", content: p.content, id: p.id, recordedDate: p.created_at })),
+      ...recall.glossary_hits.map(p => ({ kind: "glossary", id: `glossary:${p.term}`, content: `${p.term}: ${p.definition}` })),
+      ...regularHits.map(p => ({
+        kind: memoryKind(p.source, p.type, p.authored_by), content: p.content, id: p.id,
+        sourceIds: p.source_message_ids, factKey: p.fact_key,
+        recordedDate: p.recorded_date, eventDate: p.event_date
+      })),
+      ...weekBlocks.map(p => ({ kind: "impression", id: `week:${p.week}`, content: `${p.week}: ${p.summary}` }))
     ].map(entry => ({ ...entry, namespace }));
-    return { namespace, entries, relevantPrecious, quotes: uncoveredQuotes, regularHits, weekBlocks, coveredQuotes, droppedPrecious };
+    return { namespace, entries, relevantPrecious, quotes, regularHits, weekBlocks, droppedPrecious };
   }));
   const available = spaces.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   const failedNamespaces = namespaces.filter((_, i) => spaces[i].status === "rejected");
   if (!available.length) throw new Error("All configured recall spaces are unavailable");
-  // Interleave spaces before applying ONE shared budget, so adding spaces cannot
-  // multiply the prompt budget or let the first space consume every slot.
+  // Round-robin both sources and spaces before ONE global decision and budget.
   const entries: SurfaceEntry[] = [];
-  const seen = new Set<string>();
   const ordinary = new Set(["precious", "glossary", "quote", "impression"]);
-  const categories = evidence ? ["quote", "precious", "glossary", "regular", "impression"]
-    : ["precious", "glossary", "regular", "quote", "impression"];
-  for (const kind of categories) {
-    const lists = available.map(space => space.entries.filter(entry => kind === "regular" ? !ordinary.has(entry.kind) : entry.kind === kind));
-    for (let i = 0; i < Math.max(...lists.map(list => list.length)); i++) {
-      for (const list of lists) {
-        const entry = list[i];
-        if (!entry) continue;
-        const key = `${entry.kind}\n${entry.content.trim()}`;
-        if (!seen.has(key)) { seen.add(key); entries.push(entry); }
-      }
-    }
+  const categories = evidence ? ["regular", "quote", "precious", "glossary", "impression"]
+    : ["regular", "precious", "glossary", "impression"];
+  const lists = categories.flatMap(kind => available.map(space => space.entries.filter(entry =>
+    kind === "regular" ? !ordinary.has(entry.kind) : entry.kind === kind)));
+  for (let i = 0; i < Math.max(0, ...lists.map(list => list.length)); i++) {
+    for (const list of lists) if (list[i]) entries.push(list[i]);
   }
-  const assembled = assembleRecallSurface(entries, {
+  const selection = await selectRecall(env, {
+    query, recent, visible: options.excludeVisibleIn, entries, maxItems: budget.maxItems
+  });
+  const assembled = assembleRecallSurface(selection.entries, {
     budget: identity.maxMemoryChars || 6000,
     maxItems: budget.maxItems,
     maxChars: budget.maxChars
@@ -167,8 +160,13 @@ export async function recallPatch(
       quotes: available.reduce((n, s) => n + s.quotes.length, 0),
       regular_hits: available.reduce((n, s) => n + s.regularHits.length, 0),
       week_blocks: available.reduce((n, s) => n + s.weekBlocks.length, 0),
-      dropped_quotes_covered: available.reduce((n, s) => n + s.coveredQuotes.length, 0)
+      candidates: entries.length
     },
+    selection: { status: selection.status, model: selection.model, reason: selection.reason,
+      threshold: selection.threshold, elapsed_ms: selection.elapsedMs },
+    decisions: selection.decisions.map(decision => ({ ...decision,
+      injected: assembled.entries.some(entry => entry.id === decision.id && entry.namespace === decision.namespace && entry.kind === decision.kind)
+    })),
     items: assembled.entries.map((entry) => ({
       id: entry.id ?? null,
       source_ids: entry.sourceIds,
@@ -180,10 +178,13 @@ export async function recallPatch(
           ? "precious_lexical"
           : entry.kind === "authored"
             ? "authored_verbatim"
-            : "recall_hit"
+            : entry.exact
+              ? "exact_window"
+              : "recall_hit",
+      window: entry.window ?? null,
+      purpose: entry.purpose ?? null
     })),
     excluded: [
-      ...available.flatMap(s => s.coveredQuotes.map(hit => ({ id: hit.id, namespace: s.namespace, reason: "quote_covered_by_memory" }))),
       ...available.flatMap(s => s.droppedPrecious.map(row => ({ id: row.id, namespace: s.namespace, reason: "precious_not_relevant" })))
     ].slice(0, 24),
     injected: assembled.entries.length,
@@ -208,14 +209,14 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
   let body: Body;
   try { body = await request.json(); validateBody(body, protocol); }
   catch (error) { return gatewayError(protocol, error instanceof Error ? error.message : "Invalid JSON", 400); }
-  let config;
+  let config: GatewayConfig;
   try { config = await loadConfig(env); }
-  catch { return gatewayError(protocol, "Gateway configuration unavailable. Apply migrations and check /admin/gateway.", 503); }
+  catch { return gatewayError(protocol, "Gateway configuration unavailable. Apply migrations and check /admin.", 503); }
   const identity = findIdentity(config, auth, slug);
   if (!identity) {
     return gatewayError(protocol, slug
-      ? `No identity "${slug}" available for this key. Configure /admin/gateway, then use https://<host>/<identity>/v1.`
-      : "This key has no identity. Configure one at /admin/gateway.", 403);
+      ? `No identity "${slug}" available for this key. Configure /admin, then use https://<host>/<identity>/v1.`
+      : "This key has no identity. Configure one at /admin.", 403);
   }
   // Only main models carry memory and feed Dream; every other model passes through quietly.
   const main = isMainModel(identity, body.model);
@@ -252,7 +253,7 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
         recallId,
         // A quote still present in this request's history is visible; recalling it
         // would spend budget without adding information.
-        excludeVisibleIn: inputItems(body, protocol).map(item => cleanMessageText(visibleText(item.content))).join("\n")
+        excludeVisibleIn: inputItems(body, protocol).slice(0, -1).map(item => cleanMessageText(visibleText(item.content))).join("\n")
       });
       memoryStatus = patch ? "injected" : "empty";
     }
@@ -264,7 +265,7 @@ export async function handleGateway(request: Request, env: Env, ctx: ExecutionCo
   const payload = appendMemory(prepared.body, protocol, patch);
   if (protocol === "responses" && main) payload.store = false;
   try {
-    const upstream = await callGatewayUpstream(protocol, request, prepared, payload, env);
+    const upstream = await callGatewayUpstream(env, protocol, request, prepared, payload);
     const headers = new Headers(upstream.headers);
     headers.set("x-aelios-identity", identity.slug);
     headers.set("x-aelios-memory", memoryStatus);

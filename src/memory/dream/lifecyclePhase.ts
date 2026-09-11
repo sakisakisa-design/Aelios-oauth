@@ -41,7 +41,7 @@ export async function applyDreamV2(
   const { namespace, strategy, dateLabel, digest, messageIds, extracted } = input;
   const isReview = strategy === "review";
   let updated = 0;
-  let deleted = 0;
+  const deleted = 0;
   let queuedCandidates = 0;
   const errors: Array<{ target_id: string; reason: string }> = [];
 

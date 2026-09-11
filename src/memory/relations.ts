@@ -580,7 +580,7 @@ export async function runZAuditPhase(
         marked += await markMemoriesUnderReview(env.DB, {
           namespace: input.namespace,
           ids: [seed.id, neighbor.id],
-          reason: `z_audit:high_similarity_conflict`
+          reason: "z_audit:high_similarity_conflict"
         });
         const edge = await insertMemoryRelation(env.DB, {
           srcId: seed.id,

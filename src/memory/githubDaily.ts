@@ -119,8 +119,7 @@ export function parseDailyMarkdown(md: string): ParsedDailyEntry[] {
 
   const checkpointPattern = /^## checkpoint[^\n]*$/gm;
   const starts: number[] = [];
-  let startMatch: RegExpExecArray | null;
-  while ((startMatch = checkpointPattern.exec(md)) !== null) {
+  for (let startMatch = checkpointPattern.exec(md); startMatch !== null; startMatch = checkpointPattern.exec(md)) {
     starts.push(startMatch.index);
   }
 

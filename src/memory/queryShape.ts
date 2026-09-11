@@ -93,7 +93,7 @@ export function tokenizeForIndex(text: string, limit = 80): string[] {
 }
 
 export function isEvidenceQuery(query: string): boolean {
-  return /暗号|口令|原话|说过|怎么说的|哪天|几号|什么时候|何时|日期|passphrase|said|quote|when did|what did/i.test(query);
+  return /最近一次|最后一次|上一次|last time|most recent|暗号|口令|原话|说过|怎么说的|哪天|几号|什么时候|何时|日期|passphrase|said|quote|when did|what did/i.test(query);
 }
 
 export function isTemporalQuery(query: string): boolean {
@@ -162,6 +162,57 @@ export function selectRelevantPrecious<T extends { content: string }>(
     .sort((a, b) => b.score - a.score || b.hits.length - a.hits.length || a.row.content.localeCompare(b.row.content))
     .slice(0, limit)
     .map((item) => item.row);
+}
+
+/** True overlap only. A single CJK bigram is not enough to keep a hit. */
+export function hasLexicalSupport(text: string, tokens: string[]): boolean {
+  const hits = overlappingTokens(text, tokens);
+  if (hits.length >= 2) return true;
+  return hits.some((token) => token.length >= 4 || (token.length >= 3 && /^[a-z0-9]+$/i.test(token)));
+}
+
+/**
+ * Lexical channel score. The old formula `0.35 + (hits/n)*0.5` turned a 1-of-8
+ * token scrape into 0.4125 — a padded floor that looked like cosine similarity.
+ * Zero overlap is now 0; weak overlap stays below the recall floor.
+ */
+export function lexicalHitScore(content: string, query: string, tokens: string[]): number {
+  const lower = content.toLowerCase();
+  const queryLower = query.toLowerCase();
+  const exact = queryLower.length >= 2 && lower.includes(queryLower) ? 0.15 : 0;
+  if (tokens.length === 0) return exact ? 0.75 : 0;
+  let hits = 0;
+  for (const token of tokens) {
+    if (token && lower.includes(token.toLowerCase())) hits += 1;
+  }
+  if (hits === 0) return exact;
+  return Math.min(0.95, (hits / tokens.length) * 0.8 + exact);
+}
+
+export interface GroundedHitOptions {
+  minScore?: number;
+  strongScore?: number;
+}
+
+/**
+ * Do not pad to topK. Keep a hit only if it is clearly similar, or it has
+ * real lexical support above the garbage floor. Prefer three grounded rows
+ * over ten centroid leftovers.
+ */
+export function keepGroundedHits<T extends { score: number; content: string }>(
+  records: T[],
+  tokens: string[],
+  topK: number,
+  options?: GroundedHitOptions
+): T[] {
+  const minScore = options?.minScore ?? 0.15;
+  const strongScore = options?.strongScore ?? 0.5;
+  const limit = Math.max(0, topK);
+  if (limit === 0) return [];
+  return records.filter((record) => {
+    if (record.score >= strongScore) return true;
+    return record.score >= minScore && hasLexicalSupport(record.content, tokens);
+  }).slice(0, limit);
 }
 
 export function reciprocalRankScore(rank: number, k = 60): number {

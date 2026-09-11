@@ -4,6 +4,7 @@ import { extractJsonObject } from "../../utils/parse";
 import { extractDreamMemoriesFromMessages } from "../dreamExtract";
 import { readDreamMaxTokens, readDreamModel } from "../dreamEnv";
 import type { ExtractedMemory } from "../extract";
+import { loadConfig, speakersForNamespace, type DreamSpeakers } from "../../gateway/config";
 import {
   type DailyDigestResult,
   type DigestModelCallResult,
@@ -29,7 +30,12 @@ export function buildDigestPrompt(input: {
   messages: MessageRecord[];
   existingMemories: MemoryApiRecord[];
   hasMore: boolean;
+  speakers?: DreamSpeakers | null;
 }): string {
+  const speakers = input.speakers ?? null;
+  const speakerRule = speakers
+    ? `- 站在第三人称写。关于用户用「${speakers.userName}……」；关于助手承诺用「${speakers.assistantName}需要……」。禁止出现 user、用户、assistant、助手，也不要用「你」「我」代替这两人。transcript 已用这两个名字标注角色。`
+    : "- 站在“我=助手”的视角写。关于用户，用“你……”；关于助手承诺，用“我需要……”。";
   return [
     "你是 Aelios 的 nightly dream 记忆整理器。你的任务不是简单总结，而是在用户休息时整理长期记忆。",
     "你会读取旧长期记忆和当天聊天 transcript，产出一份更干净、更一致、更有用的 memory store 整理计划。",
@@ -54,7 +60,7 @@ export function buildDigestPrompt(input: {
     "- 当多条旧记忆重复，保留更完整的一条并删除重复项；必要时先 update 保留项。",
     "- pinned=true 的旧记忆不能删除，只能在 memories_to_update 中提出更保守的补充。",
     "- 旧记忆里的临时计划/意图（例如“打算下个月充值X”）如果已经过期、已经发生、或被当天新信息取代，优先更新成持久事实或直接删除，不要让过期的打算一直躺在库里。",
-    "- 站在“我=助手”的视角写。关于用户，用“你……”；关于助手承诺，用“我需要……”。",
+    speakerRule,
     "- 不要提到 D1、Vectorize、RAG、数据库、记忆系统、代理层等实现细节。",
     "",
     "Dream 输出格式：",
@@ -91,7 +97,7 @@ export function buildDigestPrompt(input: {
     formatExistingMemories(input.existingMemories),
     "",
     "今日原始聊天：",
-    formatTranscript(input.messages)
+    formatTranscript(input.messages, speakers)
   ].join("\n");
 }
 
@@ -233,6 +239,7 @@ export async function runExtractPhase(
   let messages = input.messages;
   let hasMore = input.hasMore;
   let modelResult: DigestModelCallResult;
+  const speakers = speakersForNamespace(await loadConfig(env), input.namespace);
 
   for (;;) {
     const prompt = buildDigestPrompt({
@@ -241,7 +248,8 @@ export async function runExtractPhase(
       endIso: input.endIso,
       messages,
       existingMemories: input.existingMemories,
-      hasMore
+      hasMore,
+      speakers
     });
     modelResult = await callDigestModel(env, prompt, {
       dateLabel: input.dateLabel,
@@ -275,7 +283,8 @@ export async function runExtractPhase(
 
   const extractResult = await extractDreamMemoriesFromMessages(env, {
     namespace: input.namespace,
-    messages
+    messages,
+    speakers
   });
 
   return {

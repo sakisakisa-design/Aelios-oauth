@@ -21,27 +21,20 @@ export interface Env {
   DEFAULT_UPSTREAM_MODEL?: string;
   ALLOW_MODEL_PASSTHROUGH?: string;
   AI_GATEWAY_BASE_URL?: string;
+  /** Comma-separated tool-definition fields to strip before every upstream send. */
+  UPSTREAM_STRIP_TOOL_FIELDS?: string;
   CHATBOX_API_KEY?: string;
   IM_API_KEY?: string;
   DEBUG_API_KEY?: string;
   MEMORY_MCP_API_KEY?: string;
   GUIDE_DOG_API_KEY?: string;
   CF_AIG_TOKEN?: string;
-  ENABLE_AUTO_MEMORY?: string;
   ENABLE_DREAM?: string;
   // --- Aelios 记忆库 v2 行为开关 ---
   // 默认走 v2；只有显式 false 才回退旧路径。
   MEMORY_LIFECYCLE_ENABLED?: string;
   // dream 策略：默认 upsert，可显式 review。
   DREAM_STRATEGY?: string;
-  // 是否把 dream 删除的旧记忆收容进 longtail。默认 false，避免新 v2 内容污染旧大库兜底。
-  DREAM_ARCHIVE_DELETES_TO_LONGTAIL?: string;
-  // 写入模式：默认 upsert，可显式 append。
-  MEMORY_WRITE_MODE?: string;
-  // patrol 是否只出提案不自动删
-  MEMORY_PATROL_DRY_RUN?: string;
-  // 是否允许自动删（默认 false 锁死）
-  MEMORY_AUTO_DELETE?: string;
   // 闸三降权窗口 (分钟)，默认 30
   MEMORY_INJECT_DECAY_WINDOW_MIN?: string;
   // 闸三降权系数 (0-1)，默认 0.5
@@ -81,8 +74,6 @@ export interface Env {
   ENABLE_DIARY_WRITER?: string;
   DIARY_MODEL?: string;
   DEDUP_COSINE?: string;
-  // L4 每区（type）active 条数硬上限，0 或不设 = 关闭（母帖第一节，对抗膨胀的闸）
-  MEMORY_ZONE_CAP?: string;
   // 候选队列自动评审（judge），默认开启；设 "false" 关闭
   CANDIDATE_JUDGE_ENABLED?: string;
   JUDGE_MODEL?: string;
@@ -104,7 +95,6 @@ export interface Env {
   GITHUB_DAILY_TOKEN?: string;
   EMPTY_MEMORY_MIN_CHARS?: string;
   MESSAGES_RETENTION_DAYS?: string;
-  MEMORY_MODE?: string;
   ENABLE_MEMORY_FILTER?: string;
   ENABLE_MEMORY_RERANKER?: string;
   MEMORY_RERANKER_MODEL?: string;
@@ -114,27 +104,14 @@ export interface Env {
   MEMORY_FILTER_MAX_CONTENT_CHARS?: string;
   MEMORY_FILTER_MIN_SCORE?: string;
   MEMORY_FILTER_FAIL_OPEN?: string;
-  MEMORY_EXTRACT_EVERY_N_MESSAGES?: string;
-  INJECTION_MODE?: string;
+  RECALL_RERANK_MIN_SCORE?: string;
+  RECALL_RERANK_TIMEOUT_MS?: string;
   EMBEDDING_MODEL?: string;
   EMBEDDING_DIMENSIONS?: string;
   MEMORY_TOP_K?: string;
   MEMORY_MIN_SCORE?: string;
   MEMORY_LEGACY_VECTOR_FALLBACK_LIMIT?: string;
   MEMORY_LEGACY_VECTOR_FALLBACK_SCORE_FACTOR?: string;
-  ANTHROPIC_CACHE_ENABLED?: string;
-  ANTHROPIC_CACHE_TTL?: string;
-  ANTHROPIC_AUTO_CACHE_ENABLED?: string;
-  ANTHROPIC_ROLLING_CACHE_ENABLED?: string;
-  ANTHROPIC_ROLLING_CACHE_WINDOW_SIZE?: string;
-  ANTHROPIC_CACHE_STABLE_SYSTEM?: string;
-  ANTHROPIC_CACHE_USER_ID?: string;
-  CUSTOM_ANTHROPIC_MESSAGES_PATH?: string;
-  ANTHROPIC_THINKING_ENABLED?: string;
-  ANTHROPIC_THINKING_BUDGET?: string;
-  ENABLE_CACHE_API?: string;
-  CACHE_DEFAULT_TTL_SECONDS?: string;
-  CACHE_MAX_VALUE_BYTES?: string;
 }
 
 export interface RetentionQueueMessage {
@@ -153,15 +130,11 @@ export type Scope =
   | "debug:read"
   | "export:read";
 
-export type InjectionMode = "rag" | "full" | "hybrid" | "none";
-export type MemoryMode = "external" | "builtin" | "hybrid" | "none";
 
 export interface KeyProfile {
   source: string;
   namespace: string;
   scopes: Scope[];
-  injectionMode: InjectionMode;
-  memoryMode: MemoryMode;
   allowModelPassthrough: boolean;
   debug: boolean;
 }

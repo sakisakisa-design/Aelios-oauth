@@ -40,10 +40,10 @@ assert.equal(turn.time, "15:48");
 assert.match(turn.user, /为啥glm审查经常失败/);
 assert.match(turn.assistant, /composer 修噪声/);
 
-const garbage = parseDailyMarkdown(`# title\n\nrandom junk line\n\n- broken turn\n`);
+const garbage = parseDailyMarkdown("# title\n\nrandom junk line\n\n- broken turn\n");
 assert.equal(garbage.length, 0, "garbage lines should be tolerated");
 
-const noWriter = parseDailyMarkdown(`## checkpoint 2026-07-07\n### 最近对话尾部\n- [user] hi\n`);
+const noWriter = parseDailyMarkdown("## checkpoint 2026-07-07\n### 最近对话尾部\n- [user] hi\n");
 assert.equal(noWriter.length, 0, "checkpoint without writer section should be skipped");
 
 const notConfigured = await runGithubDailyPull({ DB: {} });

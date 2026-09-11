@@ -60,8 +60,7 @@ function unwrapTransportEnvelopes(text: string): string {
   out += text.slice(cursor);
 
   const open = /<([a-zA-Z][\w:-]*)\b([^>]*?)>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = open.exec(out))) {
+  for (let match = open.exec(out); match; match = open.exec(out)) {
     if (match[0].endsWith("/>")) continue;
     if (!isTransportEnvelope(match[1], match[2])) continue;
     const after = out.slice(match.index + match[0].length);
@@ -73,39 +72,46 @@ function unwrapTransportEnvelopes(text: string): string {
 }
 
 function stripInstructionBlocks(text: string): string {
-  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*\/>/gi, (full, tag) =>
+  let out = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*\/>/gi, (full, tag) =>
     isInstructionBlock(tag) ? "" : full
   );
-  text = text.replace(/<([a-zA-Z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (full, tag) =>
+  out = out.replace(/<([a-zA-Z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (full, tag) =>
     isInstructionBlock(tag) ? "" : full
   );
 
   const open = /<([a-zA-Z][\w:-]*)\b[^>]*>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = open.exec(text))) {
+  for (let match = open.exec(out); match; match = open.exec(out)) {
     if (match[0].endsWith("/>")) continue;
     if (!isUnclosedInstructionWrapper(match[1])) continue;
-    const after = text.slice(match.index + match[0].length);
+    const after = out.slice(match.index + match[0].length);
     if (hasCloseTag(after, match[1])) continue;
-    text = text.slice(0, match.index);
+    out = out.slice(0, match.index);
     break;
   }
-  return text;
+  return out;
+}
+
+/** Channel/harness status lines. Not speech — the send itself is in the tool call. */
+function isDeliveryReceipt(line: string): boolean {
+  const compact = line.replace(/\s+/g, "");
+  return /^(已回(?:她|他|你|完)?|已回复|已发送|已送达)[。.!！]*$/u.test(compact);
 }
 
 /** Whole-utterance (or trailing) templates that clients inject without tags. */
 function dropMachineProse(text: string): string {
-  return text
+  const stripped = text
     .replace(/(?:^|\n)user stepped away;?\s*returning\.\s*recap:[\s\S]*$/i, "")
     .replace(/(?:^|\n)recap:\s*<[\s\S]*$/i, "")
     .replace(/(?:^|\n)today:\s*\d{4}-\d{2}-\d{2}\b[\s\S]*current working directory[\s\S]*$/i, "")
     .trim();
+  return stripped.split("\n").filter((line) => !isDeliveryReceipt(line.trim())).join("\n").trim();
 }
 
 /**
  * Keep the human sentence. Unwrap IM transport envelopes; drop client
- * recap / system-reminder / hook blocks. Ordinary prose that happens to
- * mention `<message>` or the word recap is left untouched.
+ * recap / system-reminder / hook blocks and delivery receipts like 「已回她」.
+ * Ordinary prose that happens to mention `<message>` or the word recap is
+ * left untouched.
  */
 export function cleanMessageText(input: string): string {
   let text = input.replace(/\r\n/g, "\n").trim();

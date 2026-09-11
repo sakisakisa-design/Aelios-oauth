@@ -109,7 +109,7 @@ export function validateRequest(body: Body, protocol: Protocol, headers = new He
   if (protocol !== "messages") return;
   requireField(Number.isInteger(body.max_tokens) && body.max_tokens >= 0, "max_tokens", "Anthropic requires a nonnegative integer (0 is cache warming).");
   requireField(body.messages.length > 0, "messages", "Provide at least one message.");
-  for (const [field, max] of [["temperature", 1], ["top_p", 1], ["top_k", Infinity]] as const) {
+  for (const [field, max] of [["temperature", 1], ["top_p", 1], ["top_k", Number.POSITIVE_INFINITY]] as const) {
     if (body[field] !== undefined) requireField(typeof body[field] === "number" && body[field] >= 0 && body[field] <= max &&
       (field !== "top_k" || Number.isInteger(body[field])), field, `Expected a number between 0 and ${max}.`);
   }

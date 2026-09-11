@@ -12,7 +12,7 @@ const model = process.env.CLEANUP_MODEL || "deepseek/deepseek-v4-flash";
 const outputDir = process.env.CLEANUP_OUTPUT_DIR || "backups";
 const minChars = Number(process.env.CLEANUP_MIN_CHARS || 900);
 const maxRecordsPerBatch = Number(process.env.CLEANUP_BATCH_SIZE || 3);
-const maxBatches = readArgNumber("--limit-batches", Infinity);
+const maxBatches = readArgNumber("--limit-batches", Number.POSITIVE_INFINITY);
 const modelTries = Number(process.env.CLEANUP_MODEL_TRIES || 3);
 const modelTimeoutMs = Number(process.env.CLEANUP_MODEL_TIMEOUT_MS || 90000);
 const modelMaxTokens = Number(process.env.CLEANUP_MODEL_MAX_TOKENS || 8000);
@@ -600,7 +600,7 @@ for (const memory of memories) {
 const batchResults = await runBatches(batches);
 const plans = batchResults.flatMap((result) => (result.plan ? [result.plan] : []));
 const errors = batchResults.flatMap((result) => (result.error ? [result.error] : []));
-let usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
 for (const result of batchResults) {
   const itemUsage = result.usage || {};

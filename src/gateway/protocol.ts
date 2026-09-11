@@ -1,6 +1,12 @@
 import { object, type Identity, type Protocol } from "./config";
 import { cleanMessageText } from "../utils/sanitize";
 
+/**
+ * Client request bodies are arbitrary JSON that this layer reads and rewrites field by field.
+ * Narrowing to `unknown` costs 77 type errors across the gateway and buys no safety the runtime
+ * guards here do not already provide.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: see above
 export type Body = Record<string, any>;
 export function visibleText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -52,13 +58,13 @@ export function appendMemory(body: Body, protocol: Protocol, patch: string): Bod
   const copy = structuredClone(body);
   if (!patch) return copy;
   if (protocol === "responses" && typeof copy.input === "string") {
-    copy.input += "\n\n" + patch;
+    copy.input += `\n\n${patch}`;
     return copy;
   }
   const items = inputItems(copy, protocol);
   const last = items[items.length - 1];
   // Preserve every original content block and client cache_control marker.
-  if (typeof last.content === "string") last.content += "\n\n" + patch;
+  if (typeof last.content === "string") last.content += `\n\n${patch}`;
   else last.content = [...(last.content || []), { type: protocol === "responses" ? "input_text" : "text", text: patch }];
   return copy;
 }
@@ -98,13 +104,24 @@ export function sanitizeCacheControl(body: Body, protocol: Protocol): void {
 }
 // Vertex-backed lines reject cache_control on tool definitions
 // (INVALID_ARGUMENT unrecognizedProperty=cache_control); system/user markers are fine.
-// The gateway learns this per upstream and strips only tool breakpoints there.
-export function stripToolCacheControl(body: Body): boolean {
+// Newer clients also stamp eager_input_streaming onto tool definitions; that field only
+// tunes tool-argument streaming granularity, so dropping it costs a little latency and
+// nothing else. Both are learned per upstream — see callGatewayUpstream.
+export const STRIPPABLE_TOOL_FIELDS: ReadonlySet<string> = new Set(["cache_control", "eager_input_streaming"]);
+/** A tool's identity, not a tuning knob: removing any of these ships a broken or useless tool. */
+export const PROTECTED_TOOL_FIELDS: ReadonlySet<string> = new Set(["name", "description", "input_schema", "type"]);
+/** Removing a field the tool never had reports false, so callers can tell a real retry from a no-op. */
+export function stripToolField(body: Body, field: string): boolean {
   let stripped = false;
   for (const tool of body.tools ?? []) {
-    if (object(tool) && tool.cache_control !== undefined) { delete tool.cache_control; stripped = true; }
+    if (object(tool) && tool[field] !== undefined) { delete tool[field]; stripped = true; }
   }
   return stripped;
+}
+/** Every `unrecognizedProperty=<name>` the upstream named, in its 400 detail. */
+export function rejectedFieldNames(detail: string): string[] {
+  const matches = detail.matchAll(/unrecognizedProperty=([A-Za-z_][A-Za-z0-9_]*)/g);
+  return [...new Set([...matches].map(match => match[1]))];
 }
 // Encrypted reasoning stays allowed; only server-owned history breaks request-only memory.
 export function hasServerState(body: Body, protocol: Protocol): boolean {
@@ -123,7 +140,7 @@ export function applyThinkingPolicy(body: Body, identity: Identity, protocol: Pr
 }
 // Fingerprints sort object keys without rewriting request payloads.
 export function canonical(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (object(value)) return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (object(value)) return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }

@@ -12,7 +12,7 @@ import { handleVectorDoctor, handleVectorHealth, handleVectorReindex } from "./a
 import { handleDreamHarvest, handleDreamRun, handleDreamStatus } from "./api/dream";
 import { handleGateway } from "./gateway/handler";
 import { handleOauthPassthrough, oauthPassthroughEndpoint, oauthToken } from "./gateway/oauth";
-import { handleGatewayAdmin, handleGatewayEnv, gatewayAdminPage } from "./gateway/admin";
+import { handleGatewayAdmin, handleGatewayEnv, handleRecallHistory } from "./gateway/admin";
 import { identityNamespace, loadConfig, loadSettings, type Protocol } from "./gateway/config";
 import { applySettings } from "./gateway/settings";
 import { handleGuideDogChatCompletions } from "./api/guideDog";
@@ -92,10 +92,12 @@ export default {
   async fetch(request: Request, deployed: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (request.method === "GET" && url.pathname === "/admin/gateway") return gatewayAdminPage();
+    if (request.method === "GET" && url.pathname === "/admin/gateway") return new Response(null, { status: 302, headers: { location: "/admin", "cache-control": "no-store" } });
     // The admin endpoints report and edit the deployed values, so they run before the overrides.
     if (url.pathname === "/api/gateway/config") return handleGatewayAdmin(request, deployed);
     if (request.method === "GET" && url.pathname === "/api/gateway/env") return handleGatewayEnv(request, deployed);
+
+    if (request.method === "GET" && url.pathname === "/api/gateway/recalls") return handleRecallHistory(request, deployed);
 
     const env = applySettings(deployed, await loadSettings(deployed));
 

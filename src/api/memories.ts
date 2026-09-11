@@ -39,6 +39,8 @@ import { isV2Enabled, runRecall } from "../memory/v2/recall";
 
 import type { Env, KeyProfile, MemoryApiRecord } from "../types";
 import { json, openAiError } from "../utils/json";
+import { getYesterdayDateLabel } from "../memory/dreamDates";
+import { formatDateLabel } from "../utils/time";
 import {
   readBoolean,
   readJsonObject,
@@ -117,7 +119,7 @@ async function handleCreateMemory(
     }
   }
 
-  let memory;
+  let memory: ReturnType<typeof toMemoryApiRecord>;
   try {
     const created = await createMemory(env.DB, {
       namespace: resolveNamespace(profile, body.namespace),
@@ -444,11 +446,6 @@ function toCandidateApiRecord(row: MemoryCandidateRow) {
   };
 }
 
-function yesterdayDateLabel(now = new Date()): string {
-  const date = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  return date.toISOString().slice(0, 10);
-}
-
 async function countMessagesInRange(
   db: D1Database,
   input: { namespace: string; startCreatedAt: string; endCreatedAt: string }
@@ -478,9 +475,9 @@ export async function handleMemoryBoot(request: Request, env: Env): Promise<Resp
   const scopeError = requireScope(auth.profile, "memory:read");
   if (scopeError) return scopeError;
 
-  const start = readString(url.searchParams.get("start")) || new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
+  const start = readString(url.searchParams.get("start")) || `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
   const end = readString(url.searchParams.get("end")) || new Date().toISOString();
-  const dailyDate = readString(url.searchParams.get("daily_date")) || yesterdayDateLabel();
+  const dailyDate = readString(url.searchParams.get("daily_date")) || getYesterdayDateLabel(readDiaryTimeZone(env));
   const [dailyLog, precious, glossary, todayMessages, todayRawCount, pendingCount, typeCounts] = await Promise.all([
     getDailyLog(env.DB, { namespace, date: dailyDate }),
     listPrecious(env.DB, { namespace, limit: 100 }),
@@ -512,15 +509,6 @@ export async function handleMemoryBoot(request: Request, env: Env): Promise<Resp
   });
 }
 
-function formatDateLabel(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(date);
-}
-
 function readDiaryTimeZone(env: Env): string {
   return env.DREAM_TIME_ZONE?.trim() || env.DAILY_DIGEST_TIME_ZONE?.trim() || "Asia/Singapore";
 }
@@ -539,7 +527,7 @@ export async function handleDiaryApi(request: Request, env: Env): Promise<Respon
 
   if (url.pathname === "/v1/diary/recent") {
     const today = formatDateLabel(new Date(), timeZone);
-    const yesterday = formatDateLabel(new Date(Date.now() - 24 * 60 * 60 * 1000), timeZone);
+    const yesterday = getYesterdayDateLabel(timeZone);
     const rows = await Promise.all([
       getDailyLog(env.DB, { namespace, date: today }),
       getDailyLog(env.DB, { namespace, date: yesterday })
@@ -835,7 +823,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
         target.status === "active" &&
         target.version_status !== "superseded";
       if (targetActive) {
-        let result;
+        let result: Awaited<ReturnType<typeof supersedeMemory>>;
         try {
           result = await supersedeMemory(env, {
             namespace,
@@ -876,7 +864,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
     const fallbackNote = candidate.target_memory_id
       ? `${readString(body.decision_note) || "approved"}; target_gone_fallback`
       : readString(body.decision_note) || "approved";
-    let approval;
+    let approval: Awaited<ReturnType<typeof createApprovedMemoryFromCandidate>>;
     try {
       approval = await createApprovedMemoryFromCandidate(env, {
         namespace,
@@ -954,7 +942,7 @@ export async function handleMemoryCandidates(request: Request, env: Env): Promis
   if (action === "supersede") {
     const oldId = readString(body.target_id);
     if (!oldId) return openAiError("target_id is required", 400);
-    let result;
+    let result: Awaited<ReturnType<typeof supersedeMemory>>;
     try {
       result = await supersedeMemory(env, {
         namespace,

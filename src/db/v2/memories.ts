@@ -302,7 +302,7 @@ export async function resolveMemoryFactKey(
 ): Promise<string | null> {
   const row = await env.DB
     .prepare(
-      `SELECT m.fact_key, m.namespace, m.status, m.version_status FROM memories m WHERE m.id = ?`
+      "SELECT m.fact_key, m.namespace, m.status, m.version_status FROM memories m WHERE m.id = ?"
     )
     .bind(id)
     .first<{
@@ -316,7 +316,7 @@ export async function resolveMemoryFactKey(
   if (row.status !== "active" || row.version_status === "superseded") return null;
   if (row.fact_key) return row.fact_key;
   const lifecycle = await env.DB
-    .prepare(`SELECT fact_key FROM memory_lifecycle WHERE memory_id = ?`)
+    .prepare("SELECT fact_key FROM memory_lifecycle WHERE memory_id = ?")
     .bind(id)
     .first<{ fact_key: string | null }>();
   return lifecycle?.fact_key ?? null;
@@ -414,7 +414,7 @@ export async function supersedeMemory(
   });
   const old = await db
     .prepare(
-      `SELECT id, status, vector_id, fact_key, type, authored_by, response_tendency FROM memories WHERE namespace = ? AND id = ?`
+      "SELECT id, status, vector_id, fact_key, type, authored_by, response_tendency FROM memories WHERE namespace = ? AND id = ?"
     )
     .bind(input.namespace, input.oldId)
     .first<{
@@ -509,7 +509,7 @@ export async function supersedeMemory(
     .run();
   await db
     .prepare(
-      `UPDATE memory_lifecycle SET superseded_by_id = ?, review_reason = ? WHERE memory_id = ?`
+      "UPDATE memory_lifecycle SET superseded_by_id = ?, review_reason = ? WHERE memory_id = ?"
     )
     .bind(nextId, input.reason ?? null, old.id)
     .run();
@@ -610,13 +610,13 @@ export async function markMemoriesUnderReview(
     if (input.reason) {
       await db
         .prepare(
-          `INSERT OR IGNORE INTO memory_lifecycle (memory_id, namespace, seen_count) VALUES (?, ?, 0)`
+          "INSERT OR IGNORE INTO memory_lifecycle (memory_id, namespace, seen_count) VALUES (?, ?, 0)"
         )
         .bind(id, input.namespace)
         .run();
       await db
         .prepare(
-          `UPDATE memory_lifecycle SET review_reason = ? WHERE memory_id = ? AND namespace = ?`
+          "UPDATE memory_lifecycle SET review_reason = ? WHERE memory_id = ? AND namespace = ?"
         )
         .bind(input.reason, id, input.namespace)
         .run();

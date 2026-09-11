@@ -17,11 +17,6 @@ type CacheRow = CodexCredentials & { exp: number };
 
 let memory: CacheRow | null = null;
 
-function secret(env: Env, name: keyof Env): string {
-  const value = env[name];
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function parseAuthJson(raw: string): Partial<CodexCredentials> {
   let data: Record<string, unknown>;
   try { data = JSON.parse(raw); }
@@ -79,10 +74,13 @@ export function wantsCodexOauth(env: Env, protocol: Protocol, model: string): bo
 }
 
 function seedFromSecrets(env: Env): Partial<CodexCredentials> {
-  const fromJson = parseAuthJson(secret(env, "CODEX_AUTH_JSON"));
+  const authJson = typeof env.CODEX_AUTH_JSON === "string" ? env.CODEX_AUTH_JSON.trim() : "";
+  const refresh = typeof env.CODEX_REFRESH_TOKEN === "string" ? env.CODEX_REFRESH_TOKEN.trim() : "";
+  const account = typeof env.CODEX_ACCOUNT_ID === "string" ? env.CODEX_ACCOUNT_ID.trim() : "";
+  const fromJson = parseAuthJson(authJson);
   return {
-    refreshToken: secret(env, "CODEX_REFRESH_TOKEN") || fromJson.refreshToken || "",
-    accountId: secret(env, "CODEX_ACCOUNT_ID") || fromJson.accountId || ""
+    refreshToken: refresh || fromJson.refreshToken || "",
+    accountId: account || fromJson.accountId || ""
   };
 }
 
